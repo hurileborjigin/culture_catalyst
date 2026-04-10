@@ -1,48 +1,50 @@
-@import 'tailwindcss';
+@import "tailwindcss";
 
 @theme inline {
-  --font-sans: 'Inter', 'Inter Fallback';
-  --font-serif: 'Playfair Display', 'Playfair Display Fallback';
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Playfair Display", ui-serif, Georgia, serif;
 
-  --color-background: hsl(30 25% 96%);
-  --color-foreground: hsl(150 30% 18%);
+  --color-background: #f7f5f2;
+  --color-foreground: #1f3d32;
 
-  --color-card: hsl(30 20% 98%);
-  --color-card-foreground: hsl(150 30% 18%);
+  --color-card: #faf9f7;
+  --color-card-foreground: #1f3d32;
 
-  --color-popover: hsl(30 20% 98%);
-  --color-popover-foreground: hsl(150 30% 18%);
+  --color-popover: #faf9f7;
+  --color-popover-foreground: #1f3d32;
 
-  --color-primary: hsl(150 35% 25%);
-  --color-primary-foreground: hsl(30 25% 96%);
+  --color-primary: #2d4a3e;
+  --color-primary-foreground: #f7f5f2;
 
-  --color-secondary: hsl(140 15% 90%);
-  --color-secondary-foreground: hsl(150 30% 18%);
+  --color-secondary: #e8ede9;
+  --color-secondary-foreground: #1f3d32;
 
-  --color-muted: hsl(30 15% 92%);
-  --color-muted-foreground: hsl(150 15% 45%);
+  --color-muted: #edeae6;
+  --color-muted-foreground: #5c7268;
 
-  --color-accent: hsl(18 65% 55%);
-  --color-accent-foreground: hsl(30 25% 96%);
+  --color-accent: #d97448;
+  --color-accent-foreground: #f7f5f2;
 
-  --color-destructive: hsl(0 84% 60%);
-  --color-destructive-foreground: hsl(0 0% 100%);
+  --color-destructive: #ef4444;
+  --color-destructive-foreground: #ffffff;
 
-  --color-border: hsl(150 15% 85%);
-  --color-input: hsl(150 15% 85%);
-  --color-ring: hsl(150 35% 25%);
+  --color-border: #d4d9d5;
+  --color-input: #d4d9d5;
+  --color-ring: #2d4a3e;
 
-  --radius: 0.75rem;
-  --radius-lg: var(--radius);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-sm: calc(var(--radius) - 4px);
+  --radius-sm: 0.5rem;
+  --radius-md: 0.625rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
 }
 
 @layer base {
   * {
     @apply border-border;
   }
+
   body {
     @apply bg-background text-foreground antialiased;
+    font-family: var(--font-sans);
   }
 }
