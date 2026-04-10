@@ -1,50 +1,36 @@
-@import "tailwindcss";
-
-@theme inline {
-  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
-  --font-serif: "Playfair Display", ui-serif, Georgia, serif;
-
-  --color-background: #f7f5f2;
-  --color-foreground: #1f3d32;
-
-  --color-card: #faf9f7;
-  --color-card-foreground: #1f3d32;
-
-  --color-popover: #faf9f7;
-  --color-popover-foreground: #1f3d32;
-
-  --color-primary: #2d4a3e;
-  --color-primary-foreground: #f7f5f2;
-
-  --color-secondary: #e8ede9;
-  --color-secondary-foreground: #1f3d32;
-
-  --color-muted: #edeae6;
-  --color-muted-foreground: #5c7268;
-
-  --color-accent: #d97448;
-  --color-accent-foreground: #f7f5f2;
-
-  --color-destructive: #ef4444;
-  --color-destructive-foreground: #ffffff;
-
-  --color-border: #d4d9d5;
-  --color-input: #d4d9d5;
-  --color-ring: #2d4a3e;
-
-  --radius-sm: 0.5rem;
-  --radius-md: 0.625rem;
-  --radius-lg: 0.75rem;
-  --radius-xl: 1rem;
-}
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
 @layer base {
+  :root {
+    --background: 45 30% 97%;
+    --foreground: 24 15% 20%;
+    --card: 0 0% 100%;
+    --card-foreground: 24 15% 20%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 24 15% 20%;
+    --primary: 160 27% 30%;
+    --primary-foreground: 45 30% 97%;
+    --secondary: 30 72% 92%;
+    --secondary-foreground: 24 15% 20%;
+    --muted: 24 10% 93%;
+    --muted-foreground: 24 10% 40%;
+    --accent: 18 100% 55%;
+    --accent-foreground: 45 30% 97%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 24 10% 84%;
+    --input: 24 10% 84%;
+    --ring: 160 27% 30%;
+    --radius: 0.5rem;
+  }
+
   * {
     @apply border-border;
   }
 
   body {
     @apply bg-background text-foreground antialiased;
-    font-family: var(--font-sans);
   }
 }
