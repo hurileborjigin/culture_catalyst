@@ -1,79 +1,41 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import 'tailwindcss';
 
-@layer base {
-  :root {
-    /* Warm cream/beige background inspired by cultural, creative spaces */
-    --background: 30 25% 96%;
-    --foreground: 150 30% 18%;
+@theme inline {
+  --font-sans: 'Inter', 'Inter Fallback';
+  --font-serif: 'Playfair Display', 'Playfair Display Fallback';
 
-    --card: 30 20% 98%;
-    --card-foreground: 150 30% 18%;
+  --color-background: hsl(30 25% 96%);
+  --color-foreground: hsl(150 30% 18%);
 
-    --popover: 30 20% 98%;
-    --popover-foreground: 150 30% 18%;
+  --color-card: hsl(30 20% 98%);
+  --color-card-foreground: hsl(150 30% 18%);
 
-    /* Deep forest green as primary - cultural, grounded, growth */
-    --primary: 150 35% 25%;
-    --primary-foreground: 30 25% 96%;
+  --color-popover: hsl(30 20% 98%);
+  --color-popover-foreground: hsl(150 30% 18%);
 
-    /* Soft sage secondary */
-    --secondary: 140 15% 90%;
-    --secondary-foreground: 150 30% 18%;
+  --color-primary: hsl(150 35% 25%);
+  --color-primary-foreground: hsl(30 25% 96%);
 
-    --muted: 30 15% 92%;
-    --muted-foreground: 150 15% 45%;
+  --color-secondary: hsl(140 15% 90%);
+  --color-secondary-foreground: hsl(150 30% 18%);
 
-    /* Terracotta accent - warm, cultural, earthy */
-    --accent: 18 65% 55%;
-    --accent-foreground: 30 25% 96%;
+  --color-muted: hsl(30 15% 92%);
+  --color-muted-foreground: hsl(150 15% 45%);
 
-    --destructive: 0 84% 60%;
-    --destructive-foreground: 0 0% 100%;
+  --color-accent: hsl(18 65% 55%);
+  --color-accent-foreground: hsl(30 25% 96%);
 
-    --border: 150 15% 85%;
-    --input: 150 15% 85%;
-    --ring: 150 35% 25%;
+  --color-destructive: hsl(0 84% 60%);
+  --color-destructive-foreground: hsl(0 0% 100%);
 
-    --radius: 0.75rem;
+  --color-border: hsl(150 15% 85%);
+  --color-input: hsl(150 15% 85%);
+  --color-ring: hsl(150 35% 25%);
 
-    --chart-1: 150 35% 25%;
-    --chart-2: 18 65% 55%;
-    --chart-3: 140 15% 50%;
-    --chart-4: 30 40% 70%;
-    --chart-5: 150 20% 40%;
-  }
-
-  .dark {
-    --background: 150 25% 8%;
-    --foreground: 30 20% 95%;
-
-    --card: 150 20% 12%;
-    --card-foreground: 30 20% 95%;
-
-    --popover: 150 20% 12%;
-    --popover-foreground: 30 20% 95%;
-
-    --primary: 140 40% 50%;
-    --primary-foreground: 150 25% 8%;
-
-    --secondary: 150 15% 20%;
-    --secondary-foreground: 30 20% 90%;
-
-    --muted: 150 15% 18%;
-    --muted-foreground: 30 15% 60%;
-
-    --accent: 18 65% 55%;
-    --accent-foreground: 30 25% 96%;
-
-    --destructive: 0 62% 50%;
-    --destructive-foreground: 0 0% 100%;
-
-    --border: 150 15% 25%;
-    --input: 150 15% 25%;
-    --ring: 140 40% 50%;
-  }
+  --radius: 0.75rem;
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
 }
 
 @layer base {
