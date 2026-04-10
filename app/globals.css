@@ -1,0 +1,86 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Warm cream/beige background inspired by cultural, creative spaces */
+    --background: 30 25% 96%;
+    --foreground: 150 30% 18%;
+
+    --card: 30 20% 98%;
+    --card-foreground: 150 30% 18%;
+
+    --popover: 30 20% 98%;
+    --popover-foreground: 150 30% 18%;
+
+    /* Deep forest green as primary - cultural, grounded, growth */
+    --primary: 150 35% 25%;
+    --primary-foreground: 30 25% 96%;
+
+    /* Soft sage secondary */
+    --secondary: 140 15% 90%;
+    --secondary-foreground: 150 30% 18%;
+
+    --muted: 30 15% 92%;
+    --muted-foreground: 150 15% 45%;
+
+    /* Terracotta accent - warm, cultural, earthy */
+    --accent: 18 65% 55%;
+    --accent-foreground: 30 25% 96%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 150 15% 85%;
+    --input: 150 15% 85%;
+    --ring: 150 35% 25%;
+
+    --radius: 0.75rem;
+
+    --chart-1: 150 35% 25%;
+    --chart-2: 18 65% 55%;
+    --chart-3: 140 15% 50%;
+    --chart-4: 30 40% 70%;
+    --chart-5: 150 20% 40%;
+  }
+
+  .dark {
+    --background: 150 25% 8%;
+    --foreground: 30 20% 95%;
+
+    --card: 150 20% 12%;
+    --card-foreground: 30 20% 95%;
+
+    --popover: 150 20% 12%;
+    --popover-foreground: 30 20% 95%;
+
+    --primary: 140 40% 50%;
+    --primary-foreground: 150 25% 8%;
+
+    --secondary: 150 15% 20%;
+    --secondary-foreground: 30 20% 90%;
+
+    --muted: 150 15% 18%;
+    --muted-foreground: 30 15% 60%;
+
+    --accent: 18 65% 55%;
+    --accent-foreground: 30 25% 96%;
+
+    --destructive: 0 62% 50%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 150 15% 25%;
+    --input: 150 15% 25%;
+    --ring: 140 40% 50%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+  }
+}
