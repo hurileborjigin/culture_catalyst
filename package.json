@@ -27,5 +27,10 @@
     "swr": "^2.4.1",
     "tailwind-merge": "^3.5.0",
     "tailwindcss": "^4.2.2"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.2.2",
+    "@types/react": "19.2.14",
+    "typescript": "6.0.2"
   }
 }
