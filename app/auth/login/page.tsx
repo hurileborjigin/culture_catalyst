@@ -33,6 +33,18 @@ export default function LoginPage() {
     setError(null);
     setIsLoading(true);
 
+    // Check if Supabase is configured
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    
+    if (!supabaseUrl || !supabaseKey) {
+      setError(
+        "Supabase is not configured. Please add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY to your .env.local file."
+      );
+      setIsLoading(false);
+      return;
+    }
+
     try {
       const supabase = createClient();
       const { error } = await supabase.auth.signInWithPassword({
@@ -47,8 +59,11 @@ export default function LoginPage() {
 
       router.push("/dashboard");
       router.refresh();
-    } catch {
-      setError("An unexpected error occurred. Please try again.");
+    } catch (err) {
+      console.error("Login error:", err);
+      setError(
+        "Failed to connect to authentication server. Please check your Supabase configuration in .env.local"
+      );
     } finally {
       setIsLoading(false);
     }
