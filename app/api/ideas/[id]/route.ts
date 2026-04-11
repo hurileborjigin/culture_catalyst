@@ -30,6 +30,7 @@ export async function GET(
     }
 
     const { id } = await params;
+    console.log("[v0] Fetching idea:", id, "for user:", userId);
 
     const { data: idea, error } = await supabase
       .from("ideas")
@@ -51,8 +52,11 @@ export async function GET(
       .eq("user_id", userId)
       .single();
 
+    console.log("[v0] Idea query result:", { idea: idea?.id, error: error?.message });
+
     if (error || !idea) {
-      return NextResponse.json({ error: "Idea not found" }, { status: 404 });
+      console.log("[v0] Idea not found, error:", error);
+      return NextResponse.json({ error: "Idea not found", details: error?.message }, { status: 404 });
     }
 
     return NextResponse.json({

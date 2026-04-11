@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -24,6 +24,7 @@ import {
   Trash2,
   Edit,
   Archive,
+  Loader2,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -33,48 +34,16 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
-// Mock data - in production, this would come from your API
-const mockIdeas = [
-  {
-    id: "1",
-    title: "Neighborhood Art Walk",
-    description:
-      "A monthly walking tour showcasing local artists with pop-up galleries in storefronts and public spaces.",
-    category: "Visual Arts",
-    status: "in-development" as const,
-    progress: 65,
-    updatedAt: "2 days ago",
-    hasWorkflow: true,
-    hasBudget: true,
-    hasLegal: false,
-  },
-  {
-    id: "2",
-    title: "Community Cookbook Project",
-    description:
-      "Collecting and publishing recipes from diverse community members to celebrate cultural heritage through food.",
-    category: "Heritage & Traditions",
-    status: "draft" as const,
-    progress: 20,
-    updatedAt: "1 week ago",
-    hasWorkflow: false,
-    hasBudget: false,
-    hasLegal: false,
-  },
-  {
-    id: "3",
-    title: "Youth Music Mentorship",
-    description:
-      "Pairing young aspiring musicians with local professionals for weekly lessons and ensemble performances.",
-    category: "Performing Arts",
-    status: "ready-for-proposal" as const,
-    progress: 100,
-    updatedAt: "3 days ago",
-    hasWorkflow: true,
-    hasBudget: true,
-    hasLegal: true,
-  },
-];
+interface Idea {
+  id: string;
+  title: string;
+  description: string;
+  category: string;
+  status: "draft" | "in-development" | "ready-for-proposal" | "archived";
+  created_at: string;
+  updated_at: string;
+  idea_research?: Array<{ id: string }>;
+}
 
 const statusConfig = {
   draft: {
@@ -95,9 +64,48 @@ const statusConfig = {
   },
 };
 
+function getRelativeTime(dateString: string): string {
+  const date = new Date(dateString);
+  const now = new Date();
+  const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000);
+
+  if (diffInSeconds < 60) return "Just now";
+  if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)} minutes ago`;
+  if (diffInSeconds < 86400) return `${Math.floor(diffInSeconds / 3600)} hours ago`;
+  if (diffInSeconds < 604800) return `${Math.floor(diffInSeconds / 86400)} days ago`;
+  if (diffInSeconds < 2592000) return `${Math.floor(diffInSeconds / 604800)} weeks ago`;
+  return `${Math.floor(diffInSeconds / 2592000)} months ago`;
+}
+
+function calculateProgress(idea: Idea): number {
+  let progress = 20; // Base progress for creating an idea
+  if (idea.description && idea.description.length > 100) progress += 20;
+  if (idea.idea_research && idea.idea_research.length > 0) progress += 40;
+  if (idea.status === "ready-for-proposal") progress = 100;
+  return Math.min(progress, 100);
+}
+
 export default function DevelopPage() {
-  const [ideas, setIdeas] = useState(mockIdeas);
+  const [ideas, setIdeas] = useState<Idea[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
+
+  useEffect(() => {
+    const fetchIdeas = async () => {
+      try {
+        const response = await fetch("/api/ideas");
+        const data = await response.json();
+        if (data.success && data.ideas) {
+          setIdeas(data.ideas);
+        }
+      } catch (error) {
+        console.error("Failed to fetch ideas:", error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    fetchIdeas();
+  }, []);
 
   const filteredIdeas = ideas.filter(
     (idea) =>
@@ -105,8 +113,17 @@ export default function DevelopPage() {
       idea.description.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const handleDelete = (id: string) => {
-    setIdeas(ideas.filter((idea) => idea.id !== id));
+  const handleDelete = async (id: string) => {
+    try {
+      const response = await fetch(`/api/ideas/${id}`, {
+        method: "DELETE",
+      });
+      if (response.ok) {
+        setIdeas(ideas.filter((idea) => idea.id !== id));
+      }
+    } catch (error) {
+      console.error("Failed to delete idea:", error);
+    }
   };
 
   return (
@@ -143,8 +160,13 @@ export default function DevelopPage() {
         </div>
       </div>
 
-      {/* Ideas Grid */}
-      {filteredIdeas.length === 0 ? (
+      {/* Loading State */}
+      {isLoading ? (
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <span className="ml-3">Loading ideas...</span>
+        </div>
+      ) : filteredIdeas.length === 0 ? (
         <Card className="p-12 text-center">
           <Lightbulb className="mx-auto h-12 w-12 text-muted-foreground" />
           <h3 className="mt-4 text-lg font-semibold">No ideas yet</h3>
@@ -175,12 +197,14 @@ export default function DevelopPage() {
 }
 
 interface IdeaCardProps {
-  idea: (typeof mockIdeas)[0];
+  idea: Idea;
   onDelete: (id: string) => void;
 }
 
 function IdeaCard({ idea, onDelete }: IdeaCardProps) {
-  const status = statusConfig[idea.status];
+  const status = statusConfig[idea.status] || statusConfig.draft;
+  const progress = calculateProgress(idea);
+  const hasResearch = idea.idea_research && idea.idea_research.length > 0;
 
   return (
     <Card className="flex flex-col">
@@ -227,30 +251,24 @@ function IdeaCard({ idea, onDelete }: IdeaCardProps) {
         <div className="space-y-2">
           <div className="flex items-center justify-between text-sm">
             <span>Development Progress</span>
-            <span className="text-muted-foreground">{idea.progress}%</span>
+            <span className="text-muted-foreground">{progress}%</span>
           </div>
-          <Progress value={idea.progress} className="h-2" />
+          <Progress value={progress} className="h-2" />
         </div>
 
         {/* Development Status */}
         <div className="flex flex-wrap gap-2">
           <Badge
-            variant={idea.hasWorkflow ? "default" : "outline"}
+            variant={hasResearch ? "default" : "outline"}
             className="text-xs"
           >
-            {idea.hasWorkflow ? "Workflow Ready" : "Needs Workflow"}
+            {hasResearch ? "Research Done" : "Needs Research"}
           </Badge>
           <Badge
-            variant={idea.hasBudget ? "default" : "outline"}
+            variant={idea.status === "ready-for-proposal" ? "default" : "outline"}
             className="text-xs"
           >
-            {idea.hasBudget ? "Budget Set" : "Needs Budget"}
-          </Badge>
-          <Badge
-            variant={idea.hasLegal ? "default" : "outline"}
-            className="text-xs"
-          >
-            {idea.hasLegal ? "Legal Reviewed" : "Needs Review"}
+            {idea.status === "ready-for-proposal" ? "Ready" : "In Progress"}
           </Badge>
         </div>
 
@@ -262,7 +280,7 @@ function IdeaCard({ idea, onDelete }: IdeaCardProps) {
       <CardFooter className="flex items-center justify-between border-t pt-4">
         <div className="flex items-center gap-1 text-xs text-muted-foreground">
           <Clock className="h-3 w-3" />
-          Updated {idea.updatedAt}
+          {getRelativeTime(idea.updated_at)}
         </div>
         <Button size="sm" asChild>
           <Link href={`/dashboard/develop/${idea.id}`}>
