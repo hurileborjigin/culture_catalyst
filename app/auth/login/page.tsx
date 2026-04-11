@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Eye, EyeOff, Loader2 } from "lucide-react";
+import { authApi } from "@/lib/api";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -33,18 +34,14 @@ export default function LoginPage() {
     setIsLoading(true);
 
     try {
-      // TODO: Replace with actual API call
-      // const response = await fetch('/api/auth/login', {
-      //   method: 'POST',
-      //   headers: { 'Content-Type': 'application/json' },
-      //   body: JSON.stringify(formData),
-      // });
+      const response = await authApi.login(formData.email, formData.password);
       
-      // Simulate API call
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      
-      // For demo purposes, redirect to dashboard
-      router.push("/dashboard");
+      if (response.success && response.token && response.user) {
+        localStorage.setItem("auth_token", response.token);
+        router.push("/dashboard");
+      } else {
+        setError(response.error || "Login failed. Please try again.");
+      }
     } catch {
       setError("Invalid email or password. Please try again.");
     } finally {
@@ -135,6 +132,55 @@ export default function LoginPage() {
             )}
           </Button>
         </form>
+
+        <div className="mt-6">
+          <div className="relative">
+            <div className="absolute inset-0 flex items-center">
+              <Separator />
+            </div>
+            <div className="relative flex justify-center text-xs uppercase">
+              <span className="bg-card px-2 text-muted-foreground">
+                Demo accounts
+              </span>
+            </div>
+          </div>
+
+          <div className="mt-4 space-y-2 rounded-md border p-3">
+            <p className="text-xs font-medium text-muted-foreground">
+              Try these sample accounts (password: password123)
+            </p>
+            <div className="grid gap-1 text-xs">
+              <button
+                type="button"
+                className="text-left hover:text-primary"
+                onClick={() => setFormData({ email: "maya.chen@techcorp.io", password: "password123" })}
+              >
+                maya.chen@techcorp.io - Tech + Art
+              </button>
+              <button
+                type="button"
+                className="text-left hover:text-primary"
+                onClick={() => setFormData({ email: "james.okonkwo@nonprofit.org", password: "password123" })}
+              >
+                james.okonkwo@nonprofit.org - Youth Programs
+              </button>
+              <button
+                type="button"
+                className="text-left hover:text-primary"
+                onClick={() => setFormData({ email: "sofia.rodriguez@university.edu", password: "password123" })}
+              >
+                sofia.rodriguez@university.edu - Research
+              </button>
+              <button
+                type="button"
+                className="text-left hover:text-primary"
+                onClick={() => setFormData({ email: "alex.thompson@gallery.com", password: "password123" })}
+              >
+                alex.thompson@gallery.com - Art Curation
+              </button>
+            </div>
+          </div>
+        </div>
 
         <div className="mt-6">
           <div className="relative">

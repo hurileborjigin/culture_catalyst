@@ -126,6 +126,31 @@ bun dev
 
 ---
 
+## Demo Accounts
+
+The application includes 8 pre-configured demo accounts with diverse profiles for testing. All accounts use the password: `password123`
+
+| Email | Name | Profile Focus |
+|-------|------|---------------|
+| maya.chen@techcorp.io | Maya Chen | Technology + Art Installations |
+| james.okonkwo@nonprofit.org | James Okonkwo | Youth Empowerment + Social Impact |
+| sofia.rodriguez@university.edu | Sofia Rodriguez | Academic Research + Environmental Art |
+| alex.thompson@gallery.com | Alex Thompson | Contemporary Art + Gallery Curation |
+| priya.sharma@startup.co | Priya Sharma | Food Culture + Entrepreneurship |
+| marcus.johnson@theater.org | Marcus Johnson | Theater + Social Justice |
+| emma.liu@museum.gov | Emma Liu | Museums + Public History |
+| david.kim@agency.com | David Kim | Urban Design + Public Art |
+
+Each profile includes:
+- Professional background and organization
+- Interests and skills
+- Location information
+- Bio describing their expertise
+
+The user profiles are stored in `data/users.json` and are used by the AI to generate personalized inspiration cards and research.
+
+---
+
 ## Environment Variables
 
 Create a `.env.local` file in the root directory with the following variables:
@@ -193,6 +218,8 @@ culture_catalyst/
 │   │   └── tavily-search.ts      # Tavily search service
 │   ├── api.ts                    # API utilities
 │   └── utils.ts                  # Helper functions
+├── data/
+│   └── users.json                # Sample user profiles
 ├── types/
 │   └── index.ts                  # TypeScript type definitions
 └── .env.local.example            # Environment template
@@ -387,7 +414,7 @@ Generates a complete project proposal.
 │  │ Analysis    │    │ Search Queries│   │ for Success Stories    │  │
 │  └─────────────┘    └─────────────┘    └───────────┬─────────────┘  │
 │                                                     │                │
-│                     ┌───────────────────────────────▼──────────────┐ │
+│                     ┌───────────────────────────────��──────────────┐ │
 │                     │ LLM: Generate 20 Inspiration Cards           │ │
 │                     │ (Show 4 at a time, shuffle for more)         │ │
 │                     └──────────────────────────────────────────────┘ │
@@ -423,7 +450,7 @@ Generates a complete project proposal.
 │  │ • Budget Breakdown    • Collaborators Needed                    │ │
 │  │ • Risk Mitigation     • Next Steps                              │ │
 │  └─────────────────────────────────────────────────────────────────┘ │
-└─────────────────────────────────────────────────────────────────────┘
+└───────────────────────────────────────────────────────────���─────────┘
                                   │
                                   ▼
                     ┌─────────────────────────┐
