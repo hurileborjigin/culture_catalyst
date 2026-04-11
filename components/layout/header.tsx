@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -17,6 +17,7 @@ import {
   Sparkles,
   Lightbulb,
   FileText,
+  Globe,
   Menu,
   X,
   LogOut,
@@ -37,11 +38,22 @@ const navigation = [
   { name: "Inspiration", href: "/dashboard/inspiration", icon: Sparkles },
   { name: "Develop Ideas", href: "/dashboard/develop", icon: Lightbulb },
   { name: "Proposals", href: "/dashboard/proposals", icon: FileText },
+  { name: "Discover", href: "/dashboard/discover", icon: Globe },
 ];
 
 export function Header({ user }: HeaderProps) {
   const pathname = usePathname();
+  const router = useRouter();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  const handleLogout = async () => {
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+      router.push("/auth/login");
+    } catch (error) {
+      console.error("Logout error:", error);
+    }
+  };
 
   return (
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
@@ -125,14 +137,12 @@ export function Header({ user }: HeaderProps) {
                     </Link>
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem asChild>
-                    <Link
-                      href="/auth/logout"
-                      className="cursor-pointer text-destructive focus:text-destructive"
-                    >
-                      <LogOut className="mr-2 h-4 w-4" />
-                      Log out
-                    </Link>
+                  <DropdownMenuItem
+                    onClick={handleLogout}
+                    className="cursor-pointer text-destructive focus:text-destructive"
+                  >
+                    <LogOut className="mr-2 h-4 w-4" />
+                    Log out
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>

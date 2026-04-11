@@ -12,6 +12,8 @@ import type {
   IdeaConcept,
   PlanningWorkflow,
   Proposal,
+  PublishedProposal,
+  ProposalRecommendation,
 } from "@/types";
 
 // Fetcher function for SWR
@@ -173,6 +175,48 @@ export function useProposal(id?: string) {
     isLoading,
     isError: error,
     refresh: () => id && mutate(`/api/proposals/${id}`),
+  };
+}
+
+// ============================================
+// Published Proposals & Recommendations Hooks
+// ============================================
+
+export function usePublishedProposals(category?: string) {
+  const params = new URLSearchParams();
+  if (category) params.set("category", category);
+  const key = `/api/published-proposals?${params}`;
+
+  const { data, error, isLoading } = useSWR<{
+    proposals: PublishedProposal[];
+    total: number;
+    hasMore: boolean;
+  }>(key, fetcher);
+
+  return {
+    proposals: data?.proposals || [],
+    total: data?.total || 0,
+    hasMore: data?.hasMore || false,
+    isLoading,
+    isError: error,
+    refresh: () => mutate(key),
+  };
+}
+
+export function useRecommendedProposals() {
+  const key = "/api/recommendations/proposals";
+
+  const { data, error, isLoading } = useSWR<{
+    recommendations: ProposalRecommendation[];
+    cached: boolean;
+  }>(key, fetcher);
+
+  return {
+    recommendations: data?.recommendations || [],
+    cached: data?.cached || false,
+    isLoading,
+    isError: error,
+    refresh: () => mutate(key),
   };
 }
 

@@ -93,14 +93,13 @@ export default function ProposalDetailPage({
     setIsPublishing(true);
 
     try {
-      const response = await fetch(`/api/proposals/${id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "finalized" }),
+      const response = await fetch(`/api/proposals/${id}/publish`, {
+        method: "POST",
       });
 
-      if (response.ok) {
-        setProposal({ ...proposal, status: "finalized" });
+      const data = await response.json();
+      if (data.success) {
+        setProposal({ ...proposal, status: "submitted" });
       }
     } catch (error) {
       console.error("Error publishing proposal:", error);

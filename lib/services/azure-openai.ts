@@ -463,6 +463,122 @@ Insights: ${compressedInsights.slice(0, 400)}`,
   return generateStructuredOutput(messages, { maxTokens: 3000 });
 }
 
+/**
+ * Generate tags and category for a proposal (used when publishing)
+ */
+export async function generateProposalTags(proposal: {
+  title: string;
+  visionStatement?: string | null;
+  goals?: string[];
+  culturalImpact?: string | null;
+}): Promise<{ tags: string[]; category: string }> {
+  const messages: ChatMessage[] = [
+    {
+      role: "system",
+      content: `Extract 5-8 descriptive tags and one category for this cultural project proposal.
+Categories: Visual Arts, Performing Arts, Music, Heritage & Traditions, Environment & Sustainability, Commerce & Culture, Film & Media, Community Events, Education & Workshops, Food & Culinary.
+Output JSON: {"tags":["tag1","tag2"],"category":"Category Name"}`,
+    },
+    {
+      role: "user",
+      content: `Title: ${proposal.title}
+Vision: ${proposal.visionStatement || "N/A"}
+Goals: ${(proposal.goals || []).slice(0, 3).join("; ")}
+Impact: ${proposal.culturalImpact || "N/A"}`,
+    },
+  ];
+
+  return generateStructuredOutput(messages, { maxTokens: 500 });
+}
+
+/**
+ * Rank published proposals by relevance to a user profile
+ */
+export interface ProposalMatchDetails {
+  id: string;
+  score: number;
+  reason: string;
+  matchingInterests: string[];
+  matchingSkills: string[];
+  rolesYouCouldFill: string[];
+}
+
+export async function rankProposalsForUser(
+  userProfile: {
+    name: string;
+    interests: string[];
+    skills?: string[];
+    professionalBackground?: string;
+    location?: string;
+  },
+  proposals: Array<{
+    id: string;
+    title: string;
+    visionStatement: string | null;
+    category: string | null;
+    tags: string[];
+    authorLocation: string | null;
+    collaboratorsNeeded: unknown;
+  }>
+): Promise<ProposalMatchDetails[]> {
+  const allResults: ProposalMatchDetails[] = [];
+  const batchSize = 10;
+
+  for (let i = 0; i < proposals.length; i += batchSize) {
+    const batch = proposals.slice(i, i + batchSize);
+
+    const messages: ChatMessage[] = [
+      {
+        role: "system",
+        content: `You are a strict relevance scorer. Score each proposal 0-100 for how well it matches this user's profile. Be HIGHLY SELECTIVE:
+- 80-100: Strong match — direct overlap with user's interests, skills, or professional domain
+- 50-79: Moderate match — some thematic connection but not a core interest
+- 20-49: Weak match — tangential connection at best
+- 0-19: No meaningful match
+
+Most proposals should score BELOW 60 for any given user. Only give high scores when there is clear, specific alignment. Do NOT inflate scores.
+
+For each proposal, identify:
+- matchingInterests: which of the user's interests align with this proposal (only list actual matches, can be empty)
+- matchingSkills: which of the user's skills are relevant to this proposal's needs (only list actual matches, can be empty)
+- rolesYouCouldFill: which collaborator roles the user could fill based on their skills/background (only list if genuinely applicable, can be empty)
+
+Output JSON array:
+[{"id":"proposal-id","score":85,"reason":"1 sentence summary","matchingInterests":["interest1"],"matchingSkills":["skill1"],"rolesYouCouldFill":["Role Name"]}]`,
+      },
+      {
+        role: "user",
+        content: `User Profile:
+Name: ${userProfile.name}
+Interests: ${userProfile.interests.join(", ")}
+Skills: ${(userProfile.skills || []).join(", ") || "Not specified"}
+Background: ${userProfile.professionalBackground || "Not specified"}
+Location: ${userProfile.location || "Not specified"}
+
+Proposals:
+${batch.map((p) => {
+  const collabs = Array.isArray(p.collaboratorsNeeded)
+    ? (p.collaboratorsNeeded as Array<{ role: string; skills?: string[] }>)
+        .map((c) => `${c.role} (${(c.skills || []).join(", ")})`)
+        .join("; ")
+    : "None listed";
+  return `[${p.id}] ${p.title}
+  Category: ${p.category || "Uncategorized"} | Tags: ${p.tags.join(", ")} | Location: ${p.authorLocation || "Unknown"}
+  Collaborators needed: ${collabs}`;
+}).join("\n\n")}`,
+      },
+    ];
+
+    const batchResults = await generateStructuredOutput<ProposalMatchDetails[]>(
+      messages,
+      { maxTokens: 2000 }
+    );
+    allResults.push(...batchResults);
+  }
+
+  return allResults.sort((a, b) => b.score - a.score).slice(0, 20);
+}
+
 export const azureOpenAI = {
   generateCompletion,
   generateStructuredOutput,
@@ -471,6 +587,8 @@ export const azureOpenAI = {
   generateResearchTopics,
   synthesizeResearch,
   generateProposal,
+  generateProposalTags,
+  rankProposalsForUser,
 };
 
 export default azureOpenAI;

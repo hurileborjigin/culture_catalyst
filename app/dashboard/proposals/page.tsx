@@ -112,6 +112,24 @@ export default function ProposalsPage() {
     }
   };
 
+  const handlePublish = async (id: string) => {
+    try {
+      const response = await fetch(`/api/proposals/${id}/publish`, {
+        method: "POST",
+      });
+      const data = await response.json();
+      if (data.success) {
+        setProposals(
+          proposals.map((p) =>
+            p.id === id ? { ...p, status: "submitted" as const } : p
+          )
+        );
+      }
+    } catch (error) {
+      console.error("Error publishing proposal:", error);
+    }
+  };
+
   const formatRelativeTime = (dateString: string) => {
     const date = new Date(dateString);
     const now = new Date();
@@ -176,7 +194,7 @@ export default function ProposalsPage() {
             <TabsTrigger value="finalized">
               Finalized ({finalizedProposals.length})
             </TabsTrigger>
-          </Tabs>
+          </TabsList>
 
           <TabsContent value="drafts" className="space-y-6">
             {draftProposals.length === 0 ? (
@@ -205,6 +223,7 @@ export default function ProposalsPage() {
                     key={proposal.id}
                     proposal={proposal}
                     onDelete={handleDelete}
+                    onPublish={handlePublish}
                     formatTime={formatRelativeTime}
                   />
                 ))}
@@ -230,6 +249,7 @@ export default function ProposalsPage() {
                     key={proposal.id}
                     proposal={proposal}
                     onDelete={handleDelete}
+                    onPublish={handlePublish}
                     formatTime={formatRelativeTime}
                   />
                 ))}
@@ -245,10 +265,11 @@ export default function ProposalsPage() {
 interface ProposalCardProps {
   proposal: Proposal;
   onDelete: (id: string) => void;
+  onPublish: (id: string) => void;
   formatTime: (date: string) => string;
 }
 
-function ProposalCard({ proposal, onDelete, formatTime }: ProposalCardProps) {
+function ProposalCard({ proposal, onDelete, onPublish, formatTime }: ProposalCardProps) {
   const status = statusConfig[proposal.status];
   const budget = proposal.budget?.total ? parseFloat(proposal.budget.total.replace(/[^0-9.]/g, "")) : 0;
   const collaboratorsCount = proposal.collaborators_needed?.length || 0;
@@ -282,7 +303,7 @@ function ProposalCard({ proposal, onDelete, formatTime }: ProposalCardProps) {
                 Duplicate
               </DropdownMenuItem>
               {proposal.status === "draft" && (
-                <DropdownMenuItem>
+                <DropdownMenuItem onClick={() => onPublish(proposal.id)}>
                   <Send className="mr-2 h-4 w-4" />
                   Publish
                 </DropdownMenuItem>

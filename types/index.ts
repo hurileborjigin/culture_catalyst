@@ -229,6 +229,41 @@ export interface CollaboratorNeed {
   priority: "required" | "preferred" | "nice-to-have";
 }
 
+// Published Proposal (global, visible to all users)
+export interface PublishedProposal {
+  id: string;
+  proposalId: string;
+  userId: string;
+  title: string;
+  visionStatement: string | null;
+  goals: string[];
+  culturalImpact: string | null;
+  timeline: GeneratedProposal["timeline"] | null;
+  budget: GeneratedProposal["budget"] | null;
+  collaboratorsNeeded: GeneratedProposal["collaboratorsNeeded"] | null;
+  resources: string[];
+  challengesAndMitigation: GeneratedProposal["challengesAndMitigation"] | null;
+  nextSteps: string[];
+  authorName: string;
+  authorOrganization: string | null;
+  authorLocation: string | null;
+  tags: string[];
+  category: string | null;
+  publishedAt: Date;
+  updatedAt: Date;
+}
+
+// Recommendation with relevance score
+export interface ProposalRecommendation {
+  id: string;
+  userId: string;
+  publishedProposalId: string;
+  relevanceScore: number;
+  relevanceReason: string | null;
+  createdAt: Date;
+  publishedProposal?: PublishedProposal;
+}
+
 // API Response Types for Backend Integration
 export interface ApiResponse<T> {
   success: boolean;

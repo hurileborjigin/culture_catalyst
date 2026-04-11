@@ -13,6 +13,8 @@ import type {
   IdeaConcept,
   PlanningWorkflow,
   Proposal,
+  PublishedProposal,
+  ProposalRecommendation,
   WorkflowSession,
 } from "@/types";
 
@@ -280,6 +282,37 @@ export const proposalsApi = {
 };
 
 // ============================================
+// Published Proposals API
+// ============================================
+
+export const publishedProposalsApi = {
+  getAll: (params?: { category?: string; page?: number; pageSize?: number }) => {
+    const searchParams = new URLSearchParams();
+    if (params?.category) searchParams.set("category", params.category);
+    if (params?.page) searchParams.set("page", params.page.toString());
+    if (params?.pageSize) searchParams.set("pageSize", params.pageSize.toString());
+
+    return apiRequest<{ proposals: PublishedProposal[]; total: number; hasMore: boolean }>(
+      `/published-proposals?${searchParams}`
+    );
+  },
+
+  getById: (id: string) =>
+    apiRequest<{ proposal: PublishedProposal }>(`/published-proposals/${id}`),
+
+  getRecommendations: () =>
+    apiRequest<{ recommendations: ProposalRecommendation[]; cached: boolean }>(
+      "/recommendations/proposals"
+    ),
+
+  refreshRecommendations: () =>
+    apiRequest<{ recommendations: ProposalRecommendation[]; cached: boolean }>(
+      "/recommendations/proposals",
+      { method: "POST" }
+    ),
+};
+
+// ============================================
 // AI Agents API
 // ============================================
 
@@ -377,6 +410,7 @@ export const api = {
   inspiration: inspirationApi,
   ideas: ideasApi,
   proposals: proposalsApi,
+  publishedProposals: publishedProposalsApi,
   agents: agentsApi,
 };
 
