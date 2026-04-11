@@ -1,7 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
+import { verifyToken } from "@/lib/auth";
+import { cookies } from "next/headers";
 
-// TODO: Replace with actual database operations
-// This is a placeholder for backend integration
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
+
+async function getUserIdFromRequest(): Promise<string | null> {
+  const cookieStore = await cookies();
+  const token = cookieStore.get("auth_token")?.value;
+  if (!token) return null;
+  
+  const payload = await verifyToken(token);
+  return payload?.userId || null;
+}
 
 // GET single idea by ID
 export async function GET(
@@ -9,53 +23,41 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const userId = await getUserIdFromRequest();
+
+    if (!userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const { id } = await params;
 
-    // TODO: Implement actual database query
-    // Example integration points:
-    // 1. Validate user has access to this idea
-    // 2. Fetch idea from database
-    // 3. Include related data (inspiration, proposal, etc.)
+    const { data: idea, error } = await supabase
+      .from("ideas")
+      .select(`
+        *,
+        saved_inspirations (
+          id,
+          title,
+          category
+        ),
+        idea_research (
+          id,
+          summary,
+          sections,
+          created_at
+        )
+      `)
+      .eq("id", id)
+      .eq("user_id", userId)
+      .single();
 
-    // Placeholder data
-    const mockIdea = {
-      id,
-      title: "Community Art Walk",
-      description: "Monthly guided tours of local street art and murals, connecting residents with their neighborhood's artistic heritage.",
-      status: "in_progress",
-      phase: "planning",
-      targetAudience: "Art enthusiasts, tourists, local residents",
-      estimatedBudget: 5000,
-      timeline: "3 months",
-      tags: ["art", "community", "tours"],
-      objectives: [
-        "Increase awareness of local art scene",
-        "Build community connections",
-        "Support local artists",
-      ],
-      challenges: [
-        "Securing permissions for certain locations",
-        "Weather dependency",
-        "Volunteer coordination",
-      ],
-      resources: [
-        { type: "venue", description: "Public spaces and galleries" },
-        { type: "people", description: "Tour guides and artists" },
-        { type: "funding", description: "Local arts council grant" },
-      ],
-      milestones: [
-        { title: "Route Planning", status: "completed", date: "2024-02-01" },
-        { title: "Artist Outreach", status: "in_progress", date: "2024-02-15" },
-        { title: "Marketing Launch", status: "pending", date: "2024-03-01" },
-      ],
-      aiSuggestions: [],
-      createdAt: "2024-01-15T10:00:00.000Z",
-      updatedAt: "2024-01-20T15:30:00.000Z",
-    };
+    if (error || !idea) {
+      return NextResponse.json({ error: "Idea not found" }, { status: 404 });
+    }
 
     return NextResponse.json({
       success: true,
-      idea: mockIdea,
+      idea,
     });
   } catch (error) {
     console.error("Idea fetch error:", error);
@@ -72,20 +74,30 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const userId = await getUserIdFromRequest();
+
+    if (!userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const { id } = await params;
     const body = await request.json();
 
-    // TODO: Implement actual database update
-    // Example integration points:
-    // 1. Validate user has access to this idea
-    // 2. Update idea in database
-    // 3. Trigger AI analysis if needed
+    const { data: updatedIdea, error } = await supabase
+      .from("ideas")
+      .update({
+        ...body,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", id)
+      .eq("user_id", userId)
+      .select()
+      .single();
 
-    const updatedIdea = {
-      id,
-      ...body,
-      updatedAt: new Date().toISOString(),
-    };
+    if (error) {
+      console.error("Error updating idea:", error);
+      return NextResponse.json({ error: "Failed to update idea" }, { status: 500 });
+    }
 
     return NextResponse.json({
       success: true,
@@ -106,12 +118,24 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const userId = await getUserIdFromRequest();
+
+    if (!userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const { id } = await params;
 
-    // TODO: Implement actual database delete
-    // Example integration points:
-    // 1. Validate user has access to this idea
-    // 2. Soft delete or hard delete from database
+    const { error } = await supabase
+      .from("ideas")
+      .delete()
+      .eq("id", id)
+      .eq("user_id", userId);
+
+    if (error) {
+      console.error("Error deleting idea:", error);
+      return NextResponse.json({ error: "Failed to delete idea" }, { status: 500 });
+    }
 
     return NextResponse.json({
       success: true,

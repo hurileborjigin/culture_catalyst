@@ -1,5 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createClient } from "@supabase/supabase-js";
+import { verifyToken } from "@/lib/auth";
+import { cookies } from "next/headers";
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
+
+async function getUserIdFromRequest(): Promise<string | null> {
+  const cookieStore = await cookies();
+  const token = cookieStore.get("auth_token")?.value;
+  if (!token) return null;
+  
+  const payload = await verifyToken(token);
+  return payload?.userId || null;
+}
 
 /**
  * GET /api/ideas
@@ -7,10 +23,9 @@ import { createClient } from "@/lib/supabase/server";
  */
 export async function GET(request: NextRequest) {
   try {
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    const userId = await getUserIdFromRequest();
 
-    if (!user) {
+    if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -32,7 +47,7 @@ export async function GET(request: NextRequest) {
           created_at
         )
       `)
-      .eq("user_id", user.id)
+      .eq("user_id", userId)
       .order("created_at", { ascending: false });
 
     if (status && status !== "all") {
@@ -63,10 +78,9 @@ export async function GET(request: NextRequest) {
  */
 export async function POST(request: NextRequest) {
   try {
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    const userId = await getUserIdFromRequest();
 
-    if (!user) {
+    if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -83,7 +97,7 @@ export async function POST(request: NextRequest) {
     const { data: newIdea, error } = await supabase
       .from("ideas")
       .insert({
-        user_id: user.id,
+        user_id: userId,
         title,
         description: description || "",
         inspiration_id: inspirationId || null,
@@ -113,10 +127,9 @@ export async function POST(request: NextRequest) {
  */
 export async function DELETE(request: NextRequest) {
   try {
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    const userId = await getUserIdFromRequest();
 
-    if (!user) {
+    if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -131,7 +144,7 @@ export async function DELETE(request: NextRequest) {
       .from("ideas")
       .delete()
       .eq("id", id)
-      .eq("user_id", user.id);
+      .eq("user_id", userId);
 
     if (error) {
       console.error("Error deleting idea:", error);

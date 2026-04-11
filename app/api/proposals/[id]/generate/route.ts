@@ -1,7 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createClient } from "@supabase/supabase-js";
+import { verifyToken } from "@/lib/auth";
+import { cookies } from "next/headers";
 import { azureOpenAI } from "@/lib/services/azure-openai";
 import type { GeneratedProposal, ProposalRequirements, UserProfile, ResearchSection } from "@/types";
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
+
+async function getUserIdFromRequest(): Promise<string | null> {
+  const cookieStore = await cookies();
+  const token = cookieStore.get("auth_token")?.value;
+  if (!token) return null;
+  
+  const payload = await verifyToken(token);
+  return payload?.userId || null;
+}
 
 /**
  * POST /api/proposals/[id]/generate
@@ -22,10 +38,9 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    const userId = await getUserIdFromRequest();
 
-    if (!user) {
+    if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -69,7 +84,7 @@ export async function POST(
         .from("proposals")
         .select("*")
         .eq("idea_id", ideaId)
-        .eq("user_id", user.id)
+        .eq("user_id", userId)
         .order("created_at", { ascending: false })
         .limit(1)
         .single();
@@ -79,7 +94,7 @@ export async function POST(
           title: existingProposal.title,
           visionStatement: existingProposal.vision_statement,
           goals: existingProposal.goals || [],
-          culturalImpact: existingProposal.cultural_impact,
+          culturalImpact: existingProposal.culturalImpact,
           timeline: existingProposal.timeline,
           budget: existingProposal.budget,
           collaboratorsNeeded: existingProposal.collaborators_needed || [],
@@ -102,11 +117,11 @@ export async function POST(
     const { data: profile } = await supabase
       .from("profiles")
       .select("*")
-      .eq("id", user.id)
+      .eq("id", userId)
       .single();
 
     const userProfile: UserProfile = {
-      name: profile?.name || user.email?.split("@")[0] || "Project Organizer",
+      name: profile?.name || "Project Organizer",
       interests: profile?.interests || [],
       professionalBackground: profile?.professional_background,
       organization: profile?.organization,
@@ -123,7 +138,7 @@ export async function POST(
         .from("idea_research")
         .select("*")
         .eq("idea_id", ideaId)
-        .eq("user_id", user.id)
+        .eq("user_id", userId)
         .order("created_at", { ascending: false })
         .limit(1)
         .single();
@@ -165,7 +180,7 @@ export async function POST(
     const { data: savedProposal, error: saveError } = await supabase
       .from("proposals")
       .insert({
-        user_id: user.id,
+        user_id: userId,
         idea_id: ideaId,
         title: generatedProposal.title,
         vision_statement: generatedProposal.visionStatement,
@@ -221,10 +236,9 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    const userId = await getUserIdFromRequest();
 
-    if (!user) {
+    if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -234,7 +248,7 @@ export async function GET(
       .from("proposals")
       .select("*")
       .eq("idea_id", ideaId)
-      .eq("user_id", user.id)
+      .eq("user_id", userId)
       .order("created_at", { ascending: false })
       .limit(1)
       .single();
