@@ -28,6 +28,28 @@ const categories = [
   "Other",
 ];
 
+// Sample ideas for quick testing
+const sampleIdeas = [
+  {
+    title: "Neighborhood Art Walk Festival",
+    description: "A monthly walking tour showcasing local artists with pop-up galleries in storefronts and public spaces. The event would transform underutilized urban areas into vibrant art corridors, featuring live demonstrations, artist meet-and-greets, and interactive installations. We aim to support 20+ local artists while attracting visitors to local businesses.",
+    category: "Visual Arts",
+    inspiration: "Inspired by the success of First Friday events in other cities and our community's strong local art scene that lacks visibility.",
+  },
+  {
+    title: "Intergenerational Storytelling Archive",
+    description: "A digital and physical archive project collecting oral histories and personal narratives from community elders. Young volunteers will be trained in interview techniques and audio/video production to document stories of immigration, cultural traditions, and neighborhood history before they are lost.",
+    category: "Heritage & Traditions",
+    inspiration: "Many elderly community members have incredible stories that will be lost if not documented. COVID showed us how quickly we can lose our elders.",
+  },
+  {
+    title: "Urban Garden Music Series",
+    description: "Free outdoor concerts in community gardens combining live music performances with workshops on sustainable gardening. Each event features local musicians playing acoustic sets while attendees learn about urban farming, composting, and native plants. Food from the gardens will be incorporated into refreshments.",
+    category: "Environment & Sustainability",
+    inspiration: "Our community has several underutilized garden spaces and a thriving local music scene - why not combine them?",
+  },
+];
+
 function NewIdeaForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -63,6 +85,16 @@ function NewIdeaForm() {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const loadSampleIdea = (index: number) => {
+    const sample = sampleIdeas[index];
+    setFormData({
+      title: sample.title,
+      description: sample.description,
+      category: sample.category,
+      inspiration: sample.inspiration,
+    });
   };
 
   const handleAIAssist = async () => {
@@ -114,6 +146,30 @@ function NewIdeaForm() {
           Describe your cultural project concept and let our AI help develop it
         </p>
       </div>
+
+      {/* Quick Load Sample Ideas */}
+      <Card className="mb-6 border-dashed">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm font-medium">Quick Start - Load Sample Idea</CardTitle>
+          <CardDescription className="text-xs">
+            Click to pre-fill the form with a sample project for testing
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-wrap gap-2 pt-0">
+          {sampleIdeas.map((sample, index) => (
+            <Button
+              key={index}
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => loadSampleIdea(index)}
+              className="text-xs"
+            >
+              {sample.title.split(" ").slice(0, 3).join(" ")}...
+            </Button>
+          ))}
+        </CardContent>
+      </Card>
 
       {/* Inspiration Reference */}
       {inspirationId && (
