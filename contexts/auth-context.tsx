@@ -21,11 +21,13 @@ export interface UserProfile {
 
 interface AuthContextType {
   user: UserProfile | null;
+  profile: UserProfile | null; // Alias for user
   isLoading: boolean;
   isAuthenticated: boolean;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
+  updateProfile: (updates: Partial<UserProfile>) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -106,15 +108,42 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const updateProfile = async (updates: Partial<UserProfile>) => {
+    const token = localStorage.getItem("auth_token");
+    if (!token) {
+      throw new Error("Not authenticated");
+    }
+
+    const response = await fetch("/api/profile", {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(updates),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok || !data.success) {
+      throw new Error(data.error || "Failed to update profile");
+    }
+
+    // Update local state
+    setUser(data.profile);
+  };
+
   return (
     <AuthContext.Provider
       value={{
         user,
+        profile: user, // Alias for backwards compatibility
         isLoading,
         isAuthenticated: !!user,
         login,
         logout,
         refreshUser,
+        updateProfile,
       }}
     >
       {children}
@@ -128,6 +157,7 @@ export function useAuth() {
     // Return a default loading state for SSR
     return {
       user: null,
+      profile: null,
       isLoading: true,
       isAuthenticated: false,
       login: async () => {
@@ -137,6 +167,9 @@ export function useAuth() {
         throw new Error("useAuth must be used within an AuthProvider");
       },
       refreshUser: async () => {
+        throw new Error("useAuth must be used within an AuthProvider");
+      },
+      updateProfile: async () => {
         throw new Error("useAuth must be used within an AuthProvider");
       },
     };
