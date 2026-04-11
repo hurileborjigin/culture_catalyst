@@ -1,77 +1,78 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@/lib/supabase/server";
 
-// TODO: Replace with actual database operations
-// This is a placeholder for backend integration with TypeScript agentic workflow
-
-// GET all ideas for the current user
+/**
+ * GET /api/ideas
+ * Get all ideas for the current user
+ */
 export async function GET(request: NextRequest) {
   try {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const { searchParams } = new URL(request.url);
     const status = searchParams.get("status");
 
-    // TODO: Implement actual database query
-    // Example integration points:
-    // 1. Get user ID from session
-    // 2. Query database for user's ideas
-    // 3. Apply filters
+    let query = supabase
+      .from("ideas")
+      .select(`
+        *,
+        saved_inspirations (
+          id,
+          title,
+          category
+        ),
+        idea_research (
+          id,
+          summary,
+          created_at
+        )
+      `)
+      .eq("user_id", user.id)
+      .order("created_at", { ascending: false });
 
-    // Placeholder data
-    const mockIdeas = [
-      {
-        id: "idea_1",
-        title: "Community Art Walk",
-        description: "Monthly guided tours of local street art and murals",
-        status: "draft",
-        phase: "research",
-        targetAudience: "Art enthusiasts, tourists, local residents",
-        estimatedBudget: 5000,
-        timeline: "3 months",
-        tags: ["art", "community", "tours"],
-        createdAt: "2024-01-15T10:00:00.000Z",
-        updatedAt: "2024-01-20T15:30:00.000Z",
-      },
-      {
-        id: "idea_2",
-        title: "Cultural Heritage Festival",
-        description: "Annual celebration of diverse cultural traditions",
-        status: "in_progress",
-        phase: "planning",
-        targetAudience: "Families, cultural organizations, general public",
-        estimatedBudget: 25000,
-        timeline: "6 months",
-        tags: ["festival", "heritage", "diversity"],
-        createdAt: "2024-01-10T08:00:00.000Z",
-        updatedAt: "2024-01-25T12:00:00.000Z",
-      },
-    ];
-
-    // Filter by status if provided
-    let filtered = mockIdeas;
     if (status && status !== "all") {
-      filtered = filtered.filter((i) => i.status === status);
+      query = query.eq("status", status);
+    }
+
+    const { data: ideas, error } = await query;
+
+    if (error) {
+      console.error("Error fetching ideas:", error);
+      return NextResponse.json({ error: "Failed to fetch ideas" }, { status: 500 });
     }
 
     return NextResponse.json({
       success: true,
-      ideas: filtered,
-      total: filtered.length,
+      ideas: ideas || [],
+      total: ideas?.length || 0,
     });
   } catch (error) {
     console.error("Ideas fetch error:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
 
-// POST create a new idea
+/**
+ * POST /api/ideas
+ * Create a new idea
+ */
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const { title, description, inspirationId, tags } = body;
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
 
-    // Validate input
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const body = await request.json();
+    const { title, description, inspirationId } = body;
+
     if (!title) {
       return NextResponse.json(
         { error: "Title is required" },
@@ -79,23 +80,22 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // TODO: Implement actual database insert
-    // Example integration points:
-    // 1. Get user ID from session
-    // 2. Insert idea into database
-    // 3. Link to inspiration if provided
+    const { data: newIdea, error } = await supabase
+      .from("ideas")
+      .insert({
+        user_id: user.id,
+        title,
+        description: description || "",
+        inspiration_id: inspirationId || null,
+        status: "draft",
+      })
+      .select()
+      .single();
 
-    const newIdea = {
-      id: "idea_" + Date.now(),
-      title,
-      description: description || "",
-      inspirationId: inspirationId || null,
-      status: "draft",
-      phase: "concept",
-      tags: tags || [],
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
+    if (error) {
+      console.error("Error creating idea:", error);
+      return NextResponse.json({ error: "Failed to create idea" }, { status: 500 });
+    }
 
     return NextResponse.json({
       success: true,
@@ -103,9 +103,44 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     console.error("Idea creation error:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  }
+}
+
+/**
+ * DELETE /api/ideas
+ * Delete an idea
+ */
+export async function DELETE(request: NextRequest) {
+  try {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const { searchParams } = new URL(request.url);
+    const id = searchParams.get("id");
+
+    if (!id) {
+      return NextResponse.json({ error: "Idea ID required" }, { status: 400 });
+    }
+
+    const { error } = await supabase
+      .from("ideas")
+      .delete()
+      .eq("id", id)
+      .eq("user_id", user.id);
+
+    if (error) {
+      console.error("Error deleting idea:", error);
+      return NextResponse.json({ error: "Failed to delete idea" }, { status: 500 });
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error("Delete idea error:", error);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

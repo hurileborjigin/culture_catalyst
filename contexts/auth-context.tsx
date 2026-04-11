@@ -1,11 +1,29 @@
 "use client";
 
 import React, { createContext, useContext, useEffect, useState } from "react";
-import { User } from "@/types";
-import { authApi } from "@/lib/api";
+import { User as SupabaseUser } from "@supabase/supabase-js";
+import { createClient } from "@/lib/supabase/client";
+
+// Extended profile type from our profiles table
+interface UserProfile {
+  id: string;
+  name: string | null;
+  email: string | null;
+  avatar_url: string | null;
+  professional_background: string | null;
+  organization: string | null;
+  workplace: string | null;
+  location: string | null;
+  bio: string | null;
+  interests: string[];
+  skills: string[];
+  created_at: string;
+  updated_at: string;
+}
 
 interface AuthContextType {
-  user: User | null;
+  user: SupabaseUser | null;
+  profile: UserProfile | null;
   isLoading: boolean;
   isAuthenticated: boolean;
   login: (email: string, password: string) => Promise<void>;
@@ -17,33 +35,47 @@ interface AuthContextType {
   }) => Promise<void>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
+  updateProfile: (updates: Partial<UserProfile>) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<SupabaseUser | null>(null);
+  const [profile, setProfile] = useState<UserProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+
+  const supabase = createClient();
+
+  const fetchProfile = async (userId: string) => {
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("*")
+      .eq("id", userId)
+      .single();
+
+    if (error) {
+      console.error("Error fetching profile:", error);
+      return null;
+    }
+    return data as UserProfile;
+  };
 
   const refreshUser = async () => {
     try {
-      const token = localStorage.getItem("auth_token");
-      if (!token) {
-        setUser(null);
-        return;
-      }
+      const { data: { user } } = await supabase.auth.getUser();
+      setUser(user);
 
-      const response = await authApi.me();
-      if (response.success && response.user) {
-        setUser(response.user);
+      if (user) {
+        const profileData = await fetchProfile(user.id);
+        setProfile(profileData);
       } else {
-        localStorage.removeItem("auth_token");
-        setUser(null);
+        setProfile(null);
       }
     } catch (error) {
       console.error("Failed to refresh user:", error);
-      localStorage.removeItem("auth_token");
       setUser(null);
+      setProfile(null);
     }
   };
 
@@ -54,15 +86,36 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setIsLoading(false);
     };
     initAuth();
+
+    // Listen for auth state changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        if (session?.user) {
+          setUser(session.user);
+          const profileData = await fetchProfile(session.user.id);
+          setProfile(profileData);
+        } else {
+          setUser(null);
+          setProfile(null);
+        }
+        setIsLoading(false);
+      }
+    );
+
+    return () => {
+      subscription.unsubscribe();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const login = async (email: string, password: string) => {
-    const response = await authApi.login(email, password);
-    if (response.success && response.token && response.user) {
-      localStorage.setItem("auth_token", response.token);
-      setUser(response.user);
-    } else {
-      throw new Error(response.error || "Login failed");
+    const { error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+
+    if (error) {
+      throw new Error(error.message);
     }
   };
 
@@ -72,34 +125,66 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     name: string;
     interests?: string[];
   }) => {
-    const response = await authApi.register(data);
-    if (response.success && response.token && response.user) {
-      localStorage.setItem("auth_token", response.token);
-      setUser(response.user);
-    } else {
-      throw new Error(response.error || "Registration failed");
+    const { error } = await supabase.auth.signUp({
+      email: data.email,
+      password: data.password,
+      options: {
+        emailRedirectTo:
+          process.env.NEXT_PUBLIC_DEV_SUPABASE_REDIRECT_URL ??
+          `${typeof window !== "undefined" ? window.location.origin : ""}/auth/callback`,
+        data: {
+          name: data.name,
+          interests: data.interests || [],
+        },
+      },
+    });
+
+    if (error) {
+      throw new Error(error.message);
     }
   };
 
   const logout = async () => {
-    try {
-      await authApi.logout();
-    } finally {
-      localStorage.removeItem("auth_token");
-      setUser(null);
+    const { error } = await supabase.auth.signOut();
+    if (error) {
+      console.error("Logout error:", error);
     }
+    setUser(null);
+    setProfile(null);
+  };
+
+  const updateProfile = async (updates: Partial<UserProfile>) => {
+    if (!user) throw new Error("Not authenticated");
+
+    const { error } = await supabase
+      .from("profiles")
+      .update({
+        ...updates,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", user.id);
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    // Refresh profile after update
+    const updatedProfile = await fetchProfile(user.id);
+    setProfile(updatedProfile);
   };
 
   return (
     <AuthContext.Provider
       value={{
         user,
+        profile,
         isLoading,
         isAuthenticated: !!user,
         login,
         register,
         logout,
         refreshUser,
+        updateProfile,
       }}
     >
       {children}
@@ -111,15 +196,16 @@ export function useAuth() {
   const context = useContext(AuthContext);
   if (context === undefined) {
     // Return a default loading state for SSR or when outside provider
-    // This prevents errors during initial server-side render
     return {
       user: null,
+      profile: null,
       isLoading: true,
       isAuthenticated: false,
       login: async () => { throw new Error("useAuth must be used within an AuthProvider"); },
       register: async () => { throw new Error("useAuth must be used within an AuthProvider"); },
       logout: async () => { throw new Error("useAuth must be used within an AuthProvider"); },
       refreshUser: async () => { throw new Error("useAuth must be used within an AuthProvider"); },
+      updateProfile: async () => { throw new Error("useAuth must be used within an AuthProvider"); },
     };
   }
   return context;

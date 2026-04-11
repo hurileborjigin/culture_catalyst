@@ -1,108 +1,96 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@/lib/supabase/server";
 
-// TODO: Replace with actual database operations
-// This is a placeholder for backend integration with TypeScript agentic workflow
-
-// GET all proposals for the current user
+/**
+ * GET /api/proposals
+ * Get all proposals for the current user
+ */
 export async function GET(request: NextRequest) {
   try {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const { searchParams } = new URL(request.url);
     const status = searchParams.get("status");
 
-    // TODO: Implement actual database query
-    // Example integration points:
-    // 1. Get user ID from session
-    // 2. Query database for user's proposals
-    // 3. Include related idea data
+    let query = supabase
+      .from("proposals")
+      .select(`
+        *,
+        ideas (
+          id,
+          title,
+          description,
+          status
+        )
+      `)
+      .eq("user_id", user.id)
+      .order("created_at", { ascending: false });
 
-    // Placeholder data
-    const mockProposals = [
-      {
-        id: "prop_1",
-        title: "Community Art Walk Initiative",
-        ideaId: "idea_1",
-        status: "draft",
-        template: "community_event",
-        sections: {
-          executive_summary: "A monthly guided tour program...",
-          objectives: "To increase community engagement...",
-          budget: "Total budget: $5,000...",
-          timeline: "3-month implementation...",
-        },
-        completeness: 65,
-        createdAt: "2024-01-25T10:00:00.000Z",
-        updatedAt: "2024-01-28T14:30:00.000Z",
-      },
-      {
-        id: "prop_2",
-        title: "Cultural Heritage Festival 2024",
-        ideaId: "idea_2",
-        status: "review",
-        template: "festival",
-        sections: {
-          executive_summary: "An annual celebration...",
-          objectives: "To celebrate diversity...",
-          budget: "Total budget: $25,000...",
-          timeline: "6-month planning...",
-        },
-        completeness: 90,
-        createdAt: "2024-01-20T08:00:00.000Z",
-        updatedAt: "2024-01-30T16:00:00.000Z",
-      },
-    ];
-
-    // Filter by status if provided
-    let filtered = mockProposals;
     if (status && status !== "all") {
-      filtered = filtered.filter((p) => p.status === status);
+      query = query.eq("status", status);
+    }
+
+    const { data: proposals, error } = await query;
+
+    if (error) {
+      console.error("Error fetching proposals:", error);
+      return NextResponse.json({ error: "Failed to fetch proposals" }, { status: 500 });
     }
 
     return NextResponse.json({
       success: true,
-      proposals: filtered,
-      total: filtered.length,
+      proposals: proposals || [],
+      total: proposals?.length || 0,
     });
   } catch (error) {
-    console.error("Proposals fetch error:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    console.error("Get proposals error:", error);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
 
-// POST create a new proposal
+/**
+ * POST /api/proposals
+ * Create a new proposal
+ */
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const { title, ideaId, template } = body;
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
 
-    // Validate input
-    if (!title || !ideaId) {
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const body = await request.json();
+    const { title, ideaId } = body;
+
+    if (!title) {
       return NextResponse.json(
-        { error: "Title and idea ID are required" },
+        { error: "Title is required" },
         { status: 400 }
       );
     }
 
-    // TODO: Implement actual database insert
-    // Example integration points:
-    // 1. Get user ID from session
-    // 2. Fetch idea details
-    // 3. Generate initial proposal content using AI
-    // 4. Insert proposal into database
+    const { data: newProposal, error } = await supabase
+      .from("proposals")
+      .insert({
+        user_id: user.id,
+        idea_id: ideaId || null,
+        title,
+        status: "draft",
+      })
+      .select()
+      .single();
 
-    const newProposal = {
-      id: "prop_" + Date.now(),
-      title,
-      ideaId,
-      template: template || "general",
-      status: "draft",
-      sections: {},
-      completeness: 0,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
+    if (error) {
+      console.error("Error creating proposal:", error);
+      return NextResponse.json({ error: "Failed to create proposal" }, { status: 500 });
+    }
 
     return NextResponse.json({
       success: true,
@@ -110,9 +98,44 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     console.error("Proposal creation error:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  }
+}
+
+/**
+ * DELETE /api/proposals
+ * Delete a proposal
+ */
+export async function DELETE(request: NextRequest) {
+  try {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const { searchParams } = new URL(request.url);
+    const id = searchParams.get("id");
+
+    if (!id) {
+      return NextResponse.json({ error: "Proposal ID required" }, { status: 400 });
+    }
+
+    const { error } = await supabase
+      .from("proposals")
+      .delete()
+      .eq("id", id)
+      .eq("user_id", user.id);
+
+    if (error) {
+      console.error("Error deleting proposal:", error);
+      return NextResponse.json({ error: "Failed to delete proposal" }, { status: 500 });
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error("Delete proposal error:", error);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

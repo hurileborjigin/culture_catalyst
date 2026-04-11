@@ -1,17 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@/lib/supabase/server";
 import { azureOpenAI } from "@/lib/services/azure-openai";
 import { tavilySearch } from "@/lib/services/tavily-search";
 import type { ResearchSection, UserProfile } from "@/types";
-
-// In-memory storage for research results (in production, use database)
-const researchCache = new Map<
-  string,
-  {
-    sections: ResearchSection[];
-    summary: string;
-    createdAt: Date;
-  }
->();
 
 /**
  * POST /api/ideas/[id]/analyze
@@ -19,7 +10,6 @@ const researchCache = new Map<
  * 
  * Body:
  * - idea: { title, description, category }
- * - userProfile: { name, interests, professionalBackground, location }
  * - forceRefresh: boolean - regenerate even if cached
  */
 export async function POST(
@@ -27,15 +17,21 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { id } = await params;
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const { id: ideaId } = await params;
     const body = await request.json();
-    const { idea, userProfile, forceRefresh } = body as {
+    const { idea, forceRefresh } = body as {
       idea: {
         title: string;
         description: string;
         category: string;
       };
-      userProfile?: UserProfile;
       forceRefresh?: boolean;
     };
 
@@ -46,37 +42,55 @@ export async function POST(
       );
     }
 
-    // Check cache first
-    const cacheKey = `research_${id}`;
-    if (!forceRefresh && researchCache.has(cacheKey)) {
-      const cached = researchCache.get(cacheKey)!;
-      return NextResponse.json({
-        success: true,
-        ideaId: id,
-        research: {
-          sections: cached.sections,
-          summary: cached.summary,
-        },
-        cached: true,
-        generatedAt: cached.createdAt.toISOString(),
-      });
+    // Check for existing research first
+    if (!forceRefresh) {
+      const { data: existingResearch } = await supabase
+        .from("idea_research")
+        .select("*")
+        .eq("idea_id", ideaId)
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .single();
+
+      if (existingResearch) {
+        return NextResponse.json({
+          success: true,
+          ideaId,
+          research: {
+            sections: existingResearch.sections as ResearchSection[],
+            summary: existingResearch.summary,
+          },
+          cached: true,
+          generatedAt: existingResearch.created_at,
+        });
+      }
     }
+
+    // Get user profile for context
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("*")
+      .eq("id", user.id)
+      .single();
+
+    const userProfile: UserProfile = {
+      name: profile?.name || user.email?.split("@")[0] || "User",
+      interests: profile?.interests || [],
+      professionalBackground: profile?.professional_background,
+      organization: profile?.organization,
+      location: profile?.location,
+      skills: profile?.skills,
+    };
 
     console.log("[Idea Analysis] Starting research for:", idea.title);
 
-    // Step 1: Generate research topics and search queries using LLM
+    // Step 1: Generate research topics
     console.log("[Idea Analysis] Generating research topics...");
-    const researchTopics = await azureOpenAI.generateResearchTopics(
-      idea,
-      userProfile || {
-        name: "User",
-        interests: [],
-      }
-    );
-
+    const researchTopics = await azureOpenAI.generateResearchTopics(idea, userProfile);
     console.log("[Idea Analysis] Generated", researchTopics.topics.length, "research topics");
 
-    // Step 2: Perform web searches for each topic using Tavily
+    // Step 2: Perform web searches for each topic
     console.log("[Idea Analysis] Searching for research sources...");
     const researchResults: Array<{
       aspect: string;
@@ -93,7 +107,7 @@ export async function POST(
       const searchResult = await tavilySearch.searchForResearch(
         topic.aspect,
         topic.searchQueries,
-        6 // Get top 6 sources per topic
+        6
       );
 
       researchResults.push({
@@ -108,27 +122,72 @@ export async function POST(
 
     console.log("[Idea Analysis] Completed searches, synthesizing results...");
 
-    // Step 3: Synthesize research results into actionable guidance with sources
+    // Step 3: Synthesize research results
     const synthesis = await azureOpenAI.synthesizeResearch(idea, researchResults);
-
     console.log("[Idea Analysis] Research synthesis complete");
 
-    // Cache the results
-    researchCache.set(cacheKey, {
-      sections: synthesis.sections,
-      summary: synthesis.summary,
-      createdAt: new Date(),
-    });
+    // First, ensure the idea exists in the database
+    const { data: existingIdea } = await supabase
+      .from("ideas")
+      .select("id")
+      .eq("id", ideaId)
+      .eq("user_id", user.id)
+      .single();
+
+    let actualIdeaId = ideaId;
+
+    // If idea doesn't exist, create it
+    if (!existingIdea) {
+      const { data: newIdea, error: ideaError } = await supabase
+        .from("ideas")
+        .insert({
+          user_id: user.id,
+          title: idea.title,
+          description: idea.description,
+          status: "researched",
+        })
+        .select()
+        .single();
+
+      if (ideaError) {
+        console.error("Error creating idea:", ideaError);
+        // Continue without persisting to database
+      } else {
+        actualIdeaId = newIdea.id;
+      }
+    } else {
+      // Update existing idea status
+      await supabase
+        .from("ideas")
+        .update({ status: "researched", updated_at: new Date().toISOString() })
+        .eq("id", ideaId);
+    }
+
+    // Save research to database
+    const { data: savedResearch, error: researchError } = await supabase
+      .from("idea_research")
+      .insert({
+        idea_id: actualIdeaId,
+        user_id: user.id,
+        sections: synthesis.sections,
+        summary: synthesis.summary,
+      })
+      .select()
+      .single();
+
+    if (researchError) {
+      console.error("Error saving research:", researchError);
+    }
 
     return NextResponse.json({
       success: true,
-      ideaId: id,
+      ideaId: actualIdeaId,
       research: {
         sections: synthesis.sections,
         summary: synthesis.summary,
       },
       cached: false,
-      generatedAt: new Date().toISOString(),
+      generatedAt: savedResearch?.created_at || new Date().toISOString(),
     });
   } catch (error) {
     console.error("AI analysis error:", error);
@@ -151,28 +210,42 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { id } = await params;
-    const cacheKey = `research_${id}`;
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
 
-    if (researchCache.has(cacheKey)) {
-      const cached = researchCache.get(cacheKey)!;
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const { id: ideaId } = await params;
+
+    const { data: research, error } = await supabase
+      .from("idea_research")
+      .select("*")
+      .eq("idea_id", ideaId)
+      .eq("user_id", user.id)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .single();
+
+    if (error || !research) {
       return NextResponse.json({
         success: true,
-        ideaId: id,
-        research: {
-          sections: cached.sections,
-          summary: cached.summary,
-        },
-        cached: true,
-        generatedAt: cached.createdAt.toISOString(),
+        ideaId,
+        research: null,
+        message: "No research available. Use POST to generate research.",
       });
     }
 
     return NextResponse.json({
       success: true,
-      ideaId: id,
-      research: null,
-      message: "No research available. Use POST to generate research.",
+      ideaId,
+      research: {
+        sections: research.sections as ResearchSection[],
+        summary: research.summary,
+      },
+      cached: true,
+      generatedAt: research.created_at,
     });
   } catch (error) {
     console.error("Get research error:", error);

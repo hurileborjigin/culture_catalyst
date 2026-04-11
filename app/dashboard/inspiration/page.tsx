@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -26,10 +26,12 @@ import {
   Filter,
   AlertCircle,
   Link as LinkIcon,
+  History,
+  Trash2,
 } from "lucide-react";
 import Link from "next/link";
 import { useAuth } from "@/contexts/auth-context";
-import type { InspirationCard, UserProfile } from "@/types";
+import type { InspirationCard } from "@/types";
 
 const categories = [
   "All",
@@ -45,42 +47,79 @@ const categories = [
   "Food & Culinary",
 ];
 
+interface SavedInspiration {
+  id: string;
+  title: string;
+  summary: string;
+  category: string;
+  relevance_explanation: string;
+  success_highlights: string[];
+  source_url: string;
+  location: string;
+  tags: string[];
+  created_at: string;
+}
+
 export default function InspirationPage() {
-  const { user } = useAuth();
+  const { profile, isLoading: authLoading } = useAuth();
   const [inspirations, setInspirations] = useState<InspirationCard[]>([]);
-  const [allInspirations, setAllInspirations] = useState<InspirationCard[]>([]);
+  const [savedInspirations, setSavedInspirations] = useState<SavedInspiration[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("All");
   const [isGenerating, setIsGenerating] = useState(false);
   const [isShuffling, setIsShuffling] = useState(false);
+  const [isLoadingSaved, setIsLoadingSaved] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [totalCards, setTotalCards] = useState(0);
 
-  // Get user profile for API calls
-  const getUserProfile = (): UserProfile => {
-    if (user) {
-      return {
-        name: user.name,
-        interests: user.interests || [],
-        professionalBackground: user.professionalBackground,
-        organization: user.organization,
-        location: user.location,
-      };
+  // Load saved inspirations from database
+  const loadSavedInspirations = useCallback(async () => {
+    setIsLoadingSaved(true);
+    try {
+      const response = await fetch("/api/inspiration?saved=true");
+      const data = await response.json();
+      if (data.success) {
+        setSavedInspirations(data.savedInspirations || []);
+      }
+    } catch (err) {
+      console.error("Error loading saved inspirations:", err);
+    } finally {
+      setIsLoadingSaved(false);
     }
-    // Fallback for demo/development
-    return {
-      name: "Demo User",
-      interests: ["Community Events", "Visual Arts", "Cultural Heritage", "Music"],
-      professionalBackground: "Event Organizer",
-      organization: "Community Arts Council",
-      location: "New York, USA",
+  }, []);
+
+  // Load existing session on mount
+  useEffect(() => {
+    const loadExistingSession = async () => {
+      try {
+        const response = await fetch("/api/inspiration");
+        const data = await response.json();
+        if (data.success && data.inspirations?.length > 0) {
+          setSessionId(data.sessionId);
+          setInspirations(data.inspirations);
+          setHasMore(data.hasMore);
+          setTotalCards(data.total);
+        }
+      } catch (err) {
+        console.error("Error loading existing session:", err);
+      }
     };
-  };
+
+    if (!authLoading) {
+      loadExistingSession();
+      loadSavedInspirations();
+    }
+  }, [authLoading, loadSavedInspirations]);
 
   // Generate new inspirations
   const handleGenerate = async () => {
+    if (!profile?.interests?.length) {
+      setError("Please add some interests to your profile first to generate personalized inspirations.");
+      return;
+    }
+
     setIsGenerating(true);
     setError(null);
 
@@ -89,7 +128,6 @@ export default function InspirationPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          userProfile: getUserProfile(),
           regenerate: sessionId ? true : false,
           sessionId: sessionId,
         }),
@@ -103,15 +141,6 @@ export default function InspirationPage() {
 
       setSessionId(data.sessionId);
       setInspirations(data.inspirations);
-      setAllInspirations((prev) => {
-        // Merge new inspirations with saved ones
-        const savedCards = prev.filter((c) => c.saved);
-        const newCards = data.inspirations.map((c: InspirationCard) => ({
-          ...c,
-          saved: savedCards.some((s) => s.id === c.id),
-        }));
-        return [...savedCards, ...newCards.filter((c: InspirationCard) => !c.saved)];
-      });
       setHasMore(data.hasMore);
       setTotalCards(data.total);
     } catch (err) {
@@ -148,16 +177,53 @@ export default function InspirationPage() {
         throw new Error(data.error || "Failed to shuffle inspirations");
       }
 
-      setInspirations(data.inspirations.map((c: InspirationCard) => ({
-        ...c,
-        saved: allInspirations.some((a) => a.id === c.id && a.saved),
-      })));
+      setInspirations(data.inspirations);
       setHasMore(data.hasMore);
     } catch (err) {
       console.error("Shuffle error:", err);
       setError(err instanceof Error ? err.message : "Failed to shuffle");
     } finally {
       setIsShuffling(false);
+    }
+  };
+
+  // Save inspiration to database
+  const handleSave = async (item: InspirationCard) => {
+    try {
+      const response = await fetch("/api/inspiration", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          saveInspiration: item,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        setSavedInspirations((prev) => [data.savedInspiration, ...prev]);
+        // Mark as saved in current view
+        setInspirations((prev) =>
+          prev.map((i) => (i.id === item.id ? { ...i, saved: true } : i))
+        );
+      }
+    } catch (err) {
+      console.error("Error saving inspiration:", err);
+    }
+  };
+
+  // Remove saved inspiration
+  const handleRemoveSaved = async (id: string) => {
+    try {
+      const response = await fetch(`/api/inspiration?id=${id}`, {
+        method: "DELETE",
+      });
+
+      if (response.ok) {
+        setSavedInspirations((prev) => prev.filter((i) => i.id !== id));
+      }
+    } catch (err) {
+      console.error("Error removing saved inspiration:", err);
     }
   };
 
@@ -175,20 +241,20 @@ export default function InspirationPage() {
     return matchesSearch && matchesCategory;
   });
 
-  const savedInspirations = allInspirations.filter((item) => item.saved);
-
-  const toggleSave = (id: string) => {
-    setInspirations((prev) =>
-      prev.map((item) =>
-        item.id === id ? { ...item, saved: !item.saved } : item
-      )
-    );
-    setAllInspirations((prev) =>
-      prev.map((item) =>
-        item.id === id ? { ...item, saved: !item.saved } : item
-      )
+  // Check if an inspiration is already saved
+  const isInspSaved = (inspId: string) => {
+    return savedInspirations.some(
+      (s) => s.title === inspirations.find((i) => i.id === inspId)?.title
     );
   };
+
+  if (authLoading) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
@@ -231,6 +297,24 @@ export default function InspirationPage() {
           </Button>
         </div>
       </div>
+
+      {/* Profile Warning */}
+      {profile && (!profile.interests || profile.interests.length === 0) && (
+        <Card className="mb-6 border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-900/20">
+          <CardContent className="flex items-center gap-3 p-4">
+            <AlertCircle className="h-5 w-5 text-amber-600" />
+            <div className="flex-1">
+              <p className="font-medium text-amber-800 dark:text-amber-200">Complete Your Profile</p>
+              <p className="text-sm text-amber-700 dark:text-amber-300">
+                Add interests to your profile to get personalized inspirations.
+              </p>
+            </div>
+            <Button variant="outline" size="sm" asChild>
+              <Link href="/dashboard/profile">Edit Profile</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Error Display */}
       {error && (
@@ -280,7 +364,7 @@ export default function InspirationPage() {
                 profile and search for successful initiatives from around the world.
               </p>
             </div>
-            <Button onClick={handleGenerate} size="lg">
+            <Button onClick={handleGenerate} size="lg" disabled={!profile?.interests?.length}>
               <Sparkles className="mr-2 h-4 w-4" />
               Discover Inspiration
             </Button>
@@ -305,7 +389,7 @@ export default function InspirationPage() {
       )}
 
       {/* Search and Filters */}
-      {inspirations.length > 0 && (
+      {(inspirations.length > 0 || savedInspirations.length > 0) && (
         <div className="mb-6 flex flex-col gap-4 sm:flex-row">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -334,13 +418,14 @@ export default function InspirationPage() {
       )}
 
       {/* Tabs */}
-      {inspirations.length > 0 && (
+      {(inspirations.length > 0 || savedInspirations.length > 0) && (
         <Tabs defaultValue="discover" className="space-y-6">
           <TabsList>
             <TabsTrigger value="discover">
               Discover ({filteredInspirations.length})
             </TabsTrigger>
             <TabsTrigger value="saved">
+              <History className="mr-1 h-4 w-4" />
               Saved ({savedInspirations.length})
             </TabsTrigger>
           </TabsList>
@@ -353,7 +438,7 @@ export default function InspirationPage() {
                   No inspirations found
                 </h3>
                 <p className="mt-2 text-muted-foreground">
-                  Try adjusting your search or filters
+                  Try adjusting your search or filters, or generate new inspirations
                 </p>
               </Card>
             ) : (
@@ -362,7 +447,8 @@ export default function InspirationPage() {
                   <InspirationCardComponent
                     key={item.id}
                     item={item}
-                    onToggleSave={toggleSave}
+                    isSaved={isInspSaved(item.id)}
+                    onSave={() => handleSave(item)}
                   />
                 ))}
               </div>
@@ -370,7 +456,11 @@ export default function InspirationPage() {
           </TabsContent>
 
           <TabsContent value="saved" className="space-y-6">
-            {savedInspirations.length === 0 ? (
+            {isLoadingSaved ? (
+              <div className="flex justify-center p-12">
+                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+              </div>
+            ) : savedInspirations.length === 0 ? (
               <Card className="p-12 text-center">
                 <Bookmark className="mx-auto h-12 w-12 text-muted-foreground" />
                 <h3 className="mt-4 text-lg font-semibold">No saved items yet</h3>
@@ -381,10 +471,10 @@ export default function InspirationPage() {
             ) : (
               <div className="grid gap-6 md:grid-cols-2">
                 {savedInspirations.map((item) => (
-                  <InspirationCardComponent
+                  <SavedInspirationCard
                     key={item.id}
                     item={item}
-                    onToggleSave={toggleSave}
+                    onRemove={() => handleRemoveSaved(item.id)}
                   />
                 ))}
               </div>
@@ -398,10 +488,11 @@ export default function InspirationPage() {
 
 interface InspirationCardProps {
   item: InspirationCard;
-  onToggleSave: (id: string) => void;
+  isSaved: boolean;
+  onSave: () => void;
 }
 
-function InspirationCardComponent({ item, onToggleSave }: InspirationCardProps) {
+function InspirationCardComponent({ item, isSaved, onSave }: InspirationCardProps) {
   return (
     <Card className="flex flex-col">
       <CardHeader className="pb-3">
@@ -413,9 +504,10 @@ function InspirationCardComponent({ item, onToggleSave }: InspirationCardProps) 
             variant="ghost"
             size="icon"
             className="h-8 w-8"
-            onClick={() => onToggleSave(item.id)}
+            onClick={onSave}
+            disabled={isSaved}
           >
-            {item.saved ? (
+            {isSaved ? (
               <BookmarkCheck className="h-4 w-4 text-primary" />
             ) : (
               <Bookmark className="h-4 w-4" />
@@ -437,7 +529,6 @@ function InspirationCardComponent({ item, onToggleSave }: InspirationCardProps) 
           {item.summary}
         </p>
 
-        {/* Personalized Relevance */}
         <div className="rounded-lg bg-primary/5 p-3">
           <p className="text-xs font-medium text-primary">Why this for you:</p>
           <p className="mt-1 text-xs text-muted-foreground">
@@ -445,7 +536,6 @@ function InspirationCardComponent({ item, onToggleSave }: InspirationCardProps) 
           </p>
         </div>
 
-        {/* Success Highlights */}
         {item.successHighlights && item.successHighlights.length > 0 && (
           <div className="space-y-1">
             <p className="text-xs font-medium">Key Highlights:</p>
@@ -463,7 +553,6 @@ function InspirationCardComponent({ item, onToggleSave }: InspirationCardProps) 
           </div>
         )}
 
-        {/* Tags */}
         <div className="flex flex-wrap gap-1">
           {item.tags.slice(0, 4).map((tag) => (
             <Badge key={tag} variant="outline" className="text-xs">
@@ -472,7 +561,6 @@ function InspirationCardComponent({ item, onToggleSave }: InspirationCardProps) 
           ))}
         </div>
 
-        {/* Source */}
         {item.sourceUrl && (
           <div className="flex items-center gap-1 text-xs text-muted-foreground">
             <LinkIcon className="h-3 w-3" />
@@ -499,6 +587,81 @@ function InspirationCardComponent({ item, onToggleSave }: InspirationCardProps) 
         <Button size="sm" className="flex-1" asChild>
           <Link href={`/dashboard/develop/new?inspiration=${item.id}&title=${encodeURIComponent(item.title)}`}>
             Use This
+            <ArrowRight className="ml-2 h-3 w-3" />
+          </Link>
+        </Button>
+      </CardFooter>
+    </Card>
+  );
+}
+
+interface SavedInspirationCardProps {
+  item: SavedInspiration;
+  onRemove: () => void;
+}
+
+function SavedInspirationCard({ item, onRemove }: SavedInspirationCardProps) {
+  return (
+    <Card className="flex flex-col">
+      <CardHeader className="pb-3">
+        <div className="flex items-start justify-between gap-2">
+          <Badge variant="secondary" className="text-xs">
+            {item.category}
+          </Badge>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 text-destructive hover:text-destructive"
+            onClick={onRemove}
+          >
+            <Trash2 className="h-4 w-4" />
+          </Button>
+        </div>
+        <CardTitle className="line-clamp-2 font-serif text-lg">
+          {item.title}
+        </CardTitle>
+        {item.location && (
+          <div className="flex items-center gap-1 text-sm text-muted-foreground">
+            <MapPin className="h-3 w-3" />
+            {item.location}
+          </div>
+        )}
+        <CardDescription className="text-xs">
+          Saved {new Date(item.created_at).toLocaleDateString()}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex-1 space-y-4">
+        <p className="line-clamp-3 text-sm text-muted-foreground">
+          {item.summary}
+        </p>
+
+        <div className="rounded-lg bg-primary/5 p-3">
+          <p className="text-xs font-medium text-primary">Why this for you:</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {item.relevance_explanation}
+          </p>
+        </div>
+
+        <div className="flex flex-wrap gap-1">
+          {item.tags?.slice(0, 4).map((tag) => (
+            <Badge key={tag} variant="outline" className="text-xs">
+              {tag}
+            </Badge>
+          ))}
+        </div>
+      </CardContent>
+      <CardFooter className="flex gap-2 pt-4">
+        {item.source_url && (
+          <Button variant="outline" size="sm" className="flex-1" asChild>
+            <a href={item.source_url} target="_blank" rel="noopener noreferrer">
+              <ExternalLink className="mr-2 h-3 w-3" />
+              Source
+            </a>
+          </Button>
+        )}
+        <Button size="sm" className="flex-1" asChild>
+          <Link href={`/dashboard/develop/new?title=${encodeURIComponent(item.title)}`}>
+            Develop Idea
             <ArrowRight className="ml-2 h-3 w-3" />
           </Link>
         </Button>
