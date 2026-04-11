@@ -142,7 +142,7 @@ export default function ProfilePage() {
   }
 
   return (
-    <div className="container max-w-4xl py-8">
+    <div className="mx-auto max-w-4xl px-4 py-8 sm:px-6 lg:px-8">
       <div className="mb-8 flex items-center justify-between">
         <div>
           <h1 className="font-serif text-3xl font-bold">Your Profile</h1>
