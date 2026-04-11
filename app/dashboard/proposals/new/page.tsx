@@ -141,16 +141,34 @@ function NewProposalForm() {
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSaveProposal = async (status: "draft" | "published") => {
+    if (!generatedProposal || !ideaId) return;
+    
     setIsLoading(true);
+    setError(null);
 
     try {
-      // TODO: Save proposal to database
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      router.push("/dashboard/proposals/1");
-    } catch (error) {
-      console.error("Error creating proposal:", error);
+      const response = await fetch('/api/proposals', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: generatedProposal.title,
+          ideaId: ideaId,
+          status: status,
+          content: generatedProposal,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Failed to save proposal');
+      }
+
+      router.push(`/dashboard/proposals/${data.proposal.id}`);
+    } catch (err) {
+      console.error("Error saving proposal:", err);
+      setError(err instanceof Error ? err.message : 'Failed to save proposal');
     } finally {
       setIsLoading(false);
     }
@@ -478,14 +496,28 @@ function NewProposalForm() {
 
             {/* Actions */}
             <div className="flex gap-3 pt-4">
-              <Button variant="outline" className="flex-1" asChild>
-                <Link href="/dashboard/proposals">Save as Draft</Link>
+              <Button 
+                variant="outline" 
+                className="flex-1" 
+                onClick={() => handleSaveProposal("draft")}
+                disabled={isLoading}
+              >
+                {isLoading ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <FileText className="mr-2 h-4 w-4" />
+                )}
+                Save as Draft
               </Button>
-              <Button className="flex-1" onClick={handleSubmit} disabled={isLoading}>
+              <Button 
+                className="flex-1" 
+                onClick={() => handleSaveProposal("published")}
+                disabled={isLoading}
+              >
                 {isLoading ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Publishing...
+                    Saving...
                   </>
                 ) : (
                   <>

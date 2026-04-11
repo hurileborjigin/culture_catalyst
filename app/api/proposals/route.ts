@@ -81,7 +81,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { title, ideaId } = body;
+    const { title, ideaId, status, content } = body;
 
     if (!title) {
       return NextResponse.json(
@@ -96,7 +96,8 @@ export async function POST(request: NextRequest) {
         user_id: userId,
         idea_id: ideaId || null,
         title,
-        status: "draft",
+        status: status || "draft",
+        content: content || null,
       })
       .select()
       .single();
