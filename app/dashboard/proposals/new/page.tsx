@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, Suspense } from "react";
+import { useState, Suspense, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -24,83 +24,121 @@ import {
   FileText,
   CheckCircle2,
   Lightbulb,
+  AlertCircle,
 } from "lucide-react";
+import { useAuth } from "@/contexts/auth-context";
+import type { GeneratedProposal, ProposalRequirements, UserProfile } from "@/types";
+
+// Mock idea data - in production, fetch from database
+const mockIdea = {
+  id: "1",
+  title: "Neighborhood Art Walk",
+  description:
+    "A monthly walking tour showcasing local artists with pop-up galleries in storefronts and public spaces.",
+  category: "Visual Arts",
+};
 
 function NewProposalForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { user } = useAuth();
   const ideaId = searchParams.get("idea");
 
   const [isLoading, setIsLoading] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [generationProgress, setGenerationProgress] = useState(0);
   const [generationStep, setGenerationStep] = useState("");
-  const [formData, setFormData] = useState({
-    title: "",
-    visionStatement: "",
-    goals: "",
-    culturalImpact: "",
-    timeline: "",
+  const [error, setError] = useState<string | null>(null);
+  const [generatedProposal, setGeneratedProposal] = useState<GeneratedProposal | null>(null);
+  
+  // Requirements form
+  const [requirements, setRequirements] = useState<ProposalRequirements>({
+    hasVenue: false,
+    hasFunding: false,
+    hasTeam: false,
     budget: "",
-    resources: "",
-    collaborators: "",
-    challenges: "",
-    nextSteps: "",
+    timeline: "",
+    additionalNotes: "",
   });
 
-  const handleGenerateFromIdea = async () => {
+  // Get user profile
+  const getUserProfile = (): UserProfile => {
+    if (user) {
+      return {
+        name: user.name,
+        interests: user.interests || [],
+        professionalBackground: user.professionalBackground,
+        organization: user.organization,
+        location: user.location,
+      };
+    }
+    return {
+      name: "Demo User",
+      interests: ["Visual Arts", "Community Events"],
+      professionalBackground: "Event Organizer",
+      organization: "Community Arts Council",
+    };
+  };
+
+  // Generate proposal from AI
+  const handleGenerateProposal = async () => {
     if (!ideaId) return;
 
     setIsGenerating(true);
+    setError(null);
     setGenerationProgress(0);
 
     const steps = [
-      { progress: 15, step: "Analyzing idea and development data..." },
-      { progress: 30, step: "Researching best practices..." },
-      { progress: 45, step: "Generating vision statement..." },
-      { progress: 60, step: "Creating goals and impact analysis..." },
-      { progress: 75, step: "Building timeline and budget..." },
+      { progress: 15, step: "Analyzing idea and research data..." },
+      { progress: 30, step: "Incorporating your requirements..." },
+      { progress: 45, step: "Generating vision and goals..." },
+      { progress: 60, step: "Creating timeline and budget..." },
+      { progress: 75, step: "Identifying collaborators needed..." },
       { progress: 90, step: "Finalizing proposal..." },
-      { progress: 100, step: "Complete!" },
     ];
 
-    for (const { progress, step } of steps) {
-      setGenerationProgress(progress);
-      setGenerationStep(step);
-      await new Promise((resolve) => setTimeout(resolve, 800));
+    // Simulate progress
+    const progressInterval = setInterval(() => {
+      setGenerationProgress((prev) => {
+        const currentStep = steps.find((s) => s.progress > prev);
+        if (currentStep) {
+          setGenerationStep(currentStep.step);
+          return currentStep.progress;
+        }
+        return prev;
+      });
+    }, 2000);
+
+    try {
+      const response = await fetch(`/api/proposals/${ideaId}/generate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          idea: mockIdea,
+          userProfile: getUserProfile(),
+          requirements,
+        }),
+      });
+
+      clearInterval(progressInterval);
+      setGenerationProgress(100);
+      setGenerationStep("Complete!");
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || data.details || "Failed to generate proposal");
+      }
+
+      setGeneratedProposal(data.proposal);
+    } catch (err) {
+      console.error("Generation error:", err);
+      setError(err instanceof Error ? err.message : "Failed to generate proposal");
+    } finally {
+      clearInterval(progressInterval);
+      setIsGenerating(false);
+      setGenerationProgress(0);
     }
-
-    // TODO: Replace with actual API call to your AI agent
-    // const response = await fetch('/api/agents/generate-proposal', {
-    //   method: 'POST',
-    //   body: JSON.stringify({ ideaId }),
-    // });
-
-    // Mock generated content
-    setFormData({
-      title: "Neighborhood Art Walk",
-      visionStatement:
-        "Creating a vibrant monthly celebration of local art that transforms our neighborhood into an open-air gallery, connecting artists with the community and fostering appreciation for creative expression in everyday spaces.",
-      goals:
-        "1. Showcase work from 15+ local artists\n2. Attract 500+ visitors per event\n3. Generate $5,000+ in direct artist sales\n4. Build lasting partnerships with 10 local businesses\n5. Create a sustainable monthly event model",
-      culturalImpact:
-        "This initiative will democratize access to art by bringing galleries to the streets, support local artists economically, strengthen community bonds through shared cultural experiences, and revitalize underutilized public spaces with creative energy.",
-      timeline:
-        "Week 1-2: Secure venues and artist commitments\nWeek 3-4: Finalize route and logistics\nWeek 5-6: Marketing campaign launch\nWeek 7: Final preparations and rehearsal\nWeek 8: Event day",
-      budget:
-        "$5,500 total:\n- Venue: $1,200\n- Marketing: $800\n- Equipment: $1,500\n- Staffing: $1,200\n- Refreshments: $500\n- Contingency: $300",
-      resources:
-        "- 5-8 storefronts for art displays\n- 20 display easels\n- Portable lighting kits\n- Sound system for announcements\n- Promotional materials (flyers, banners)\n- Refreshment supplies",
-      collaborators:
-        "- Event Coordinator (1, required)\n- Route Guides (4, required)\n- Setup Crew (6, required)\n- Security Personnel (2, required)\n- Photographer (1, preferred)\n- Local business partners",
-      challenges:
-        "- Weather dependency for outdoor portions\n- Coordinating multiple venue schedules\n- Ensuring adequate foot traffic\n- Managing artist expectations for sales\n- Maintaining quality as event scales",
-      nextSteps:
-        "1. Confirm interest from 3-5 initial artists\n2. Scout and secure primary venue locations\n3. Draft partnership agreements for businesses\n4. Create event branding and marketing materials\n5. Set up volunteer recruitment campaign",
-    });
-
-    setIsGenerating(false);
-    setGenerationProgress(0);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -108,16 +146,8 @@ function NewProposalForm() {
     setIsLoading(true);
 
     try {
-      // TODO: Replace with actual API call
-      // const response = await fetch('/api/proposals', {
-      //   method: 'POST',
-      //   headers: { 'Content-Type': 'application/json' },
-      //   body: JSON.stringify(formData),
-      // });
-
+      // TODO: Save proposal to database
       await new Promise((resolve) => setTimeout(resolve, 1000));
-
-      // Redirect to the proposal view page
       router.push("/dashboard/proposals/1");
     } catch (error) {
       console.error("Error creating proposal:", error);
@@ -145,20 +175,124 @@ function NewProposalForm() {
         </p>
       </div>
 
-      {/* Generate from Idea */}
-      {ideaId && !isGenerating && !formData.title && (
-        <Card className="mb-6 border-primary/20 bg-primary/5">
-          <CardContent className="flex flex-col items-center gap-4 p-6 sm:flex-row sm:justify-between">
-            <div className="flex items-center gap-3">
-              <Lightbulb className="h-6 w-6 text-primary" />
-              <div>
-                <p className="font-medium">Generate from Idea #{ideaId}</p>
-                <p className="text-sm text-muted-foreground">
-                  Auto-fill this proposal using your developed idea
-                </p>
+      {/* Error Display */}
+      {error && (
+        <Card className="mb-6 border-destructive bg-destructive/10">
+          <CardContent className="flex items-center gap-3 p-4">
+            <AlertCircle className="h-5 w-5 text-destructive" />
+            <div>
+              <p className="font-medium text-destructive">Error</p>
+              <p className="text-sm text-muted-foreground">{error}</p>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              className="ml-auto"
+              onClick={() => setError(null)}
+            >
+              Dismiss
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Requirements Form (Step 1) */}
+      {ideaId && !generatedProposal && !isGenerating && (
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Lightbulb className="h-5 w-5 text-primary" />
+              Your Current Resources
+            </CardTitle>
+            <CardDescription>
+              Tell us what you already have - this helps us create a more tailored proposal
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="grid gap-4 sm:grid-cols-3">
+              <label className="flex cursor-pointer items-center gap-3 rounded-lg border p-4 hover:bg-muted/50">
+                <input
+                  type="checkbox"
+                  checked={requirements.hasVenue}
+                  onChange={(e) =>
+                    setRequirements({ ...requirements, hasVenue: e.target.checked })
+                  }
+                  className="h-4 w-4 rounded border-gray-300"
+                />
+                <div>
+                  <p className="font-medium">Have Venue</p>
+                  <p className="text-xs text-muted-foreground">Venue secured</p>
+                </div>
+              </label>
+              <label className="flex cursor-pointer items-center gap-3 rounded-lg border p-4 hover:bg-muted/50">
+                <input
+                  type="checkbox"
+                  checked={requirements.hasFunding}
+                  onChange={(e) =>
+                    setRequirements({ ...requirements, hasFunding: e.target.checked })
+                  }
+                  className="h-4 w-4 rounded border-gray-300"
+                />
+                <div>
+                  <p className="font-medium">Have Funding</p>
+                  <p className="text-xs text-muted-foreground">Budget available</p>
+                </div>
+              </label>
+              <label className="flex cursor-pointer items-center gap-3 rounded-lg border p-4 hover:bg-muted/50">
+                <input
+                  type="checkbox"
+                  checked={requirements.hasTeam}
+                  onChange={(e) =>
+                    setRequirements({ ...requirements, hasTeam: e.target.checked })
+                  }
+                  className="h-4 w-4 rounded border-gray-300"
+                />
+                <div>
+                  <p className="font-medium">Have Team</p>
+                  <p className="text-xs text-muted-foreground">Core team ready</p>
+                </div>
+              </label>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="budget">Budget Constraints</Label>
+                <Input
+                  id="budget"
+                  placeholder="e.g., $5,000 maximum"
+                  value={requirements.budget}
+                  onChange={(e) =>
+                    setRequirements({ ...requirements, budget: e.target.value })
+                  }
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="timeline">Timeline Constraints</Label>
+                <Input
+                  id="timeline"
+                  placeholder="e.g., Must launch by June"
+                  value={requirements.timeline}
+                  onChange={(e) =>
+                    setRequirements({ ...requirements, timeline: e.target.value })
+                  }
+                />
               </div>
             </div>
-            <Button onClick={handleGenerateFromIdea}>
+
+            <div className="space-y-2">
+              <Label htmlFor="notes">Additional Notes</Label>
+              <Textarea
+                id="notes"
+                placeholder="Any other context that would help create a better proposal..."
+                value={requirements.additionalNotes}
+                onChange={(e) =>
+                  setRequirements({ ...requirements, additionalNotes: e.target.value })
+                }
+                className="min-h-[80px]"
+              />
+            </div>
+
+            <Button onClick={handleGenerateProposal} className="w-full">
               <Sparkles className="mr-2 h-4 w-4" />
               Generate Proposal
             </Button>
@@ -182,208 +316,209 @@ function NewProposalForm() {
         </Card>
       )}
 
-      {/* Form */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Proposal Details</CardTitle>
-          <CardDescription>
-            Fill in the details below or generate them from a developed idea
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-6">
-            {/* Title */}
-            <div className="space-y-2">
-              <Label htmlFor="title">Project Title *</Label>
-              <Input
-                id="title"
-                placeholder="Give your project a compelling name"
-                value={formData.title}
-                onChange={(e) =>
-                  setFormData({ ...formData, title: e.target.value })
-                }
-                disabled={isLoading || isGenerating}
-                required
-              />
+      {/* Generated Proposal Display */}
+      {generatedProposal && (
+        <Card className="mb-6">
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <Badge variant="secondary" className="mb-2">AI Generated</Badge>
+                <CardTitle>{generatedProposal.title}</CardTitle>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleGenerateProposal}
+                disabled={isGenerating}
+              >
+                <Sparkles className="mr-2 h-4 w-4" />
+                Regenerate
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            {/* Vision */}
+            <div>
+              <h3 className="mb-2 font-semibold">Vision Statement</h3>
+              <p className="text-muted-foreground">{generatedProposal.visionStatement}</p>
             </div>
 
-            {/* Vision Statement */}
-            <div className="space-y-2">
-              <Label htmlFor="visionStatement">Vision Statement *</Label>
-              <Textarea
-                id="visionStatement"
-                placeholder="Describe the overall vision and purpose of your project"
-                value={formData.visionStatement}
-                onChange={(e) =>
-                  setFormData({ ...formData, visionStatement: e.target.value })
-                }
-                disabled={isLoading || isGenerating}
-                className="min-h-[100px]"
-                required
-              />
-            </div>
+            <Separator />
 
             {/* Goals */}
-            <div className="space-y-2">
-              <Label htmlFor="goals">Goals & Objectives *</Label>
-              <Textarea
-                id="goals"
-                placeholder="List the specific, measurable goals for this project"
-                value={formData.goals}
-                onChange={(e) =>
-                  setFormData({ ...formData, goals: e.target.value })
-                }
-                disabled={isLoading || isGenerating}
-                className="min-h-[100px]"
-                required
-              />
+            <div>
+              <h3 className="mb-2 font-semibold">Goals</h3>
+              <ul className="space-y-2">
+                {generatedProposal.goals.map((goal, i) => (
+                  <li key={i} className="flex items-start gap-2 text-sm">
+                    <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                    {goal}
+                  </li>
+                ))}
+              </ul>
             </div>
 
+            <Separator />
+
             {/* Cultural Impact */}
-            <div className="space-y-2">
-              <Label htmlFor="culturalImpact">Cultural Impact *</Label>
-              <Textarea
-                id="culturalImpact"
-                placeholder="Describe the cultural and community impact this project will have"
-                value={formData.culturalImpact}
-                onChange={(e) =>
-                  setFormData({ ...formData, culturalImpact: e.target.value })
-                }
-                disabled={isLoading || isGenerating}
-                className="min-h-[100px]"
-                required
-              />
+            <div>
+              <h3 className="mb-2 font-semibold">Cultural Impact</h3>
+              <p className="text-muted-foreground">{generatedProposal.culturalImpact}</p>
             </div>
 
             <Separator />
 
             {/* Timeline */}
-            <div className="space-y-2">
-              <Label htmlFor="timeline">Proposed Timeline</Label>
-              <Textarea
-                id="timeline"
-                placeholder="Outline the key milestones and dates"
-                value={formData.timeline}
-                onChange={(e) =>
-                  setFormData({ ...formData, timeline: e.target.value })
-                }
-                disabled={isLoading || isGenerating}
-                className="min-h-[100px]"
-              />
-            </div>
-
-            {/* Budget */}
-            <div className="space-y-2">
-              <Label htmlFor="budget">Estimated Budget</Label>
-              <Textarea
-                id="budget"
-                placeholder="Provide a budget breakdown"
-                value={formData.budget}
-                onChange={(e) =>
-                  setFormData({ ...formData, budget: e.target.value })
-                }
-                disabled={isLoading || isGenerating}
-                className="min-h-[100px]"
-              />
-            </div>
-
-            {/* Resources */}
-            <div className="space-y-2">
-              <Label htmlFor="resources">Required Resources</Label>
-              <Textarea
-                id="resources"
-                placeholder="List the resources needed"
-                value={formData.resources}
-                onChange={(e) =>
-                  setFormData({ ...formData, resources: e.target.value })
-                }
-                disabled={isLoading || isGenerating}
-                className="min-h-[80px]"
-              />
+            <div>
+              <h3 className="mb-2 font-semibold">Timeline ({generatedProposal.timeline.duration})</h3>
+              <div className="space-y-3">
+                {generatedProposal.timeline.phases.map((phase, i) => (
+                  <div key={i} className="rounded-lg border p-3">
+                    <div className="flex items-center justify-between">
+                      <p className="font-medium">{phase.name}</p>
+                      <Badge variant="outline">{phase.duration}</Badge>
+                    </div>
+                    <ul className="mt-2 space-y-1">
+                      {phase.tasks.map((task, j) => (
+                        <li key={j} className="flex items-center gap-2 text-sm text-muted-foreground">
+                          <span className="h-1 w-1 rounded-full bg-primary" />
+                          {task}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+              </div>
             </div>
 
             <Separator />
 
-            {/* Collaborators */}
-            <div className="space-y-2">
-              <Label htmlFor="collaborators">Collaborators Needed</Label>
-              <Textarea
-                id="collaborators"
-                placeholder="Describe the skills and roles you're looking for"
-                value={formData.collaborators}
-                onChange={(e) =>
-                  setFormData({ ...formData, collaborators: e.target.value })
-                }
-                disabled={isLoading || isGenerating}
-                className="min-h-[80px]"
-              />
+            {/* Budget */}
+            <div>
+              <h3 className="mb-2 font-semibold">Budget: {generatedProposal.budget.total}</h3>
+              <div className="space-y-2">
+                {generatedProposal.budget.breakdown.map((item, i) => (
+                  <div key={i} className="flex items-center justify-between text-sm">
+                    <div>
+                      <span className="font-medium">{item.category}</span>
+                      <span className="ml-2 text-muted-foreground">- {item.description}</span>
+                    </div>
+                    <span className="font-medium">{item.amount}</span>
+                  </div>
+                ))}
+              </div>
             </div>
 
-            {/* Challenges */}
-            <div className="space-y-2">
-              <Label htmlFor="challenges">Challenges & Risks</Label>
-              <Textarea
-                id="challenges"
-                placeholder="Identify potential challenges and how you plan to address them"
-                value={formData.challenges}
-                onChange={(e) =>
-                  setFormData({ ...formData, challenges: e.target.value })
-                }
-                disabled={isLoading || isGenerating}
-                className="min-h-[80px]"
-              />
+            <Separator />
+
+            {/* Collaborators Needed */}
+            <div>
+              <h3 className="mb-2 font-semibold">Collaborators Needed</h3>
+              <div className="grid gap-3 sm:grid-cols-2">
+                {generatedProposal.collaboratorsNeeded.map((collab, i) => (
+                  <div key={i} className="rounded-lg border p-3">
+                    <div className="flex items-center justify-between">
+                      <p className="font-medium">{collab.role}</p>
+                      <Badge
+                        variant={
+                          collab.priority === "required"
+                            ? "default"
+                            : collab.priority === "preferred"
+                            ? "secondary"
+                            : "outline"
+                        }
+                      >
+                        {collab.priority}
+                      </Badge>
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Skills: {collab.skills.join(", ")}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Count: {collab.count}
+                    </p>
+                  </div>
+                ))}
+              </div>
             </div>
+
+            <Separator />
+
+            {/* Challenges & Mitigation */}
+            <div>
+              <h3 className="mb-2 font-semibold">Challenges & Mitigation</h3>
+              <div className="space-y-3">
+                {generatedProposal.challengesAndMitigation.map((item, i) => (
+                  <div key={i} className="rounded-lg bg-muted/50 p-3">
+                    <p className="font-medium text-destructive/80">{item.challenge}</p>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      <span className="font-medium text-primary">Mitigation:</span> {item.mitigation}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <Separator />
 
             {/* Next Steps */}
-            <div className="space-y-2">
-              <Label htmlFor="nextSteps">Next Steps / Call to Action</Label>
-              <Textarea
-                id="nextSteps"
-                placeholder="What should interested collaborators do next?"
-                value={formData.nextSteps}
-                onChange={(e) =>
-                  setFormData({ ...formData, nextSteps: e.target.value })
-                }
-                disabled={isLoading || isGenerating}
-                className="min-h-[80px]"
-              />
+            <div>
+              <h3 className="mb-2 font-semibold">Next Steps</h3>
+              <ol className="space-y-2">
+                {generatedProposal.nextSteps.map((step, i) => (
+                  <li key={i} className="flex items-start gap-2 text-sm">
+                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-medium text-primary">
+                      {i + 1}
+                    </span>
+                    {step}
+                  </li>
+                ))}
+              </ol>
             </div>
 
-            {/* Submit */}
-            <div className="flex flex-col gap-3 pt-4 sm:flex-row sm:justify-end">
-              <Button
-                type="button"
-                variant="outline"
-                asChild
-                disabled={isLoading || isGenerating}
-              >
-                <Link href="/dashboard/proposals">Cancel</Link>
+            {/* Actions */}
+            <div className="flex gap-3 pt-4">
+              <Button variant="outline" className="flex-1" asChild>
+                <Link href="/dashboard/proposals">Save as Draft</Link>
               </Button>
-              <Button
-                type="submit"
-                disabled={
-                  isLoading ||
-                  isGenerating ||
-                  !formData.title ||
-                  !formData.visionStatement
-                }
-              >
+              <Button className="flex-1" onClick={handleSubmit} disabled={isLoading}>
                 {isLoading ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Creating...
+                    Publishing...
                   </>
                 ) : (
                   <>
                     <CheckCircle2 className="mr-2 h-4 w-4" />
-                    Create Proposal
+                    Publish Proposal
                   </>
                 )}
               </Button>
             </div>
-          </form>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* No Idea Selected */}
+      {!ideaId && (
+        <Card className="border-dashed">
+          <CardContent className="flex flex-col items-center gap-4 p-12 text-center">
+            <Lightbulb className="h-12 w-12 text-muted-foreground" />
+            <div>
+              <h3 className="text-lg font-semibold">No Idea Selected</h3>
+              <p className="mt-2 max-w-md text-muted-foreground">
+                To generate a proposal, first develop an idea with research, 
+                then click Generate Proposal from the idea page.
+              </p>
+            </div>
+            <Button asChild>
+              <Link href="/dashboard/develop">
+                Go to Develop Ideas
+              </Link>
+            </Button>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }
