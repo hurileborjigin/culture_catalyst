@@ -49,17 +49,34 @@ export async function generateCompletion(
   messages: ChatMessage[],
   options: CompletionOptions = {}
 ): Promise<string> {
-  const openai = getClient();
-  
-  const response = await openai.chat.completions.create({
-    model: deploymentName,
-    messages,
-    temperature: options.temperature ?? 0.7,
-    max_completion_tokens: options.maxTokens ?? 4096,
-    top_p: options.topP ?? 1,
-  });
+  // Check configuration
+  if (!endpoint || !apiKey) {
+    console.error("Azure OpenAI not configured. Using fallback response.");
+    throw new Error("Azure OpenAI not configured. Please set AZURE_OPENAI_ENDPOINT and AZURE_OPENAI_API_KEY environment variables.");
+  }
 
-  return response.choices[0]?.message?.content || "";
+  try {
+    const openai = getClient();
+    
+    const response = await openai.chat.completions.create({
+      model: deploymentName,
+      messages,
+      temperature: options.temperature ?? 0.7,
+      max_completion_tokens: options.maxTokens ?? 4096,
+      top_p: options.topP ?? 1,
+    });
+
+    const content = response.choices[0]?.message?.content || "";
+    
+    if (!content) {
+      console.error("Azure OpenAI returned empty content. Response:", JSON.stringify(response.choices[0]));
+    }
+    
+    return content;
+  } catch (error) {
+    console.error("Azure OpenAI API error:", error);
+    throw error;
+  }
 }
 
 /**
@@ -83,6 +100,12 @@ export async function generateStructuredOutput<T>(
     temperature: options.temperature ?? 0.5,
   });
 
+  // Check for empty response
+  if (!response || response.trim() === "") {
+    console.error("LLM returned empty response");
+    throw new Error("LLM returned empty response. Check Azure OpenAI configuration.");
+  }
+
   try {
     // Try to extract JSON from the response
     let jsonStr = response.trim();
@@ -97,10 +120,17 @@ export async function generateStructuredOutput<T>(
       jsonStr = jsonStr.slice(0, -3);
     }
     
+    // Try to find JSON object or array in the response
+    const jsonMatch = jsonStr.match(/[\[{][\s\S]*[\]}]/);
+    if (jsonMatch) {
+      jsonStr = jsonMatch[0];
+    }
+    
     return JSON.parse(jsonStr.trim()) as T;
   } catch (error) {
-    console.error("Failed to parse LLM response as JSON:", response);
-    throw new Error("Failed to parse structured output from LLM");
+    console.error("Failed to parse LLM response as JSON:", response.slice(0, 500));
+    console.error("Parse error:", error);
+    throw new Error(`Failed to parse structured output from LLM: ${response.slice(0, 100)}...`);
   }
 }
 
