@@ -55,7 +55,7 @@ export async function generateCompletion(
     model: deploymentName,
     messages,
     temperature: options.temperature ?? 0.7,
-    max_tokens: options.maxTokens ?? 4096,
+    max_completion_tokens: options.maxTokens ?? 4096,
     top_p: options.topP ?? 1,
   });
 
