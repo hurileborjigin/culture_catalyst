@@ -1,62 +1,72 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@/lib/supabase/server";
 import { azureOpenAI } from "@/lib/services/azure-openai";
 import { tavilySearch } from "@/lib/services/tavily-search";
 import type { InspirationCard, UserProfile } from "@/types";
 
-// In-memory session storage (in production, use Redis or database)
-const inspirationSessions = new Map<
-  string,
-  {
-    cards: InspirationCard[];
-    currentIndex: number;
-    createdAt: Date;
-  }
->();
-
 /**
  * GET /api/inspiration
- * Get current inspiration cards for a user session
+ * Get inspiration sessions and saved inspirations for the current user
  * Query params:
- * - sessionId: existing session ID to get cards from
- * - category: filter by category
- * - search: search within cards
+ * - sessionId: get specific session
+ * - saved: if true, get saved inspirations only
  */
 export async function GET(request: NextRequest) {
   try {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const { searchParams } = new URL(request.url);
     const sessionId = searchParams.get("sessionId");
-    const category = searchParams.get("category");
-    const search = searchParams.get("search");
+    const saved = searchParams.get("saved") === "true";
 
-    if (sessionId && inspirationSessions.has(sessionId)) {
-      const session = inspirationSessions.get(sessionId)!;
-      let cards = session.cards;
+    // Get saved inspirations
+    if (saved) {
+      const { data: savedInspirations, error } = await supabase
+        .from("saved_inspirations")
+        .select("*")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false });
 
-      // Filter by category if provided
-      if (category && category !== "all") {
-        cards = cards.filter(
-          (c) => c.category.toLowerCase() === category.toLowerCase()
-        );
+      if (error) {
+        console.error("Error fetching saved inspirations:", error);
+        return NextResponse.json({ error: "Failed to fetch saved inspirations" }, { status: 500 });
       }
 
-      // Filter by search if provided
-      if (search) {
-        const searchLower = search.toLowerCase();
-        cards = cards.filter(
-          (c) =>
-            c.title.toLowerCase().includes(searchLower) ||
-            c.summary.toLowerCase().includes(searchLower) ||
-            c.tags.some((t) => t.toLowerCase().includes(searchLower))
-        );
+      return NextResponse.json({
+        success: true,
+        savedInspirations: savedInspirations || [],
+      });
+    }
+
+    // Get specific session
+    if (sessionId) {
+      const { data: session, error } = await supabase
+        .from("inspiration_sessions")
+        .select("*")
+        .eq("id", sessionId)
+        .eq("user_id", user.id)
+        .single();
+
+      if (error || !session) {
+        return NextResponse.json({
+          success: true,
+          inspirations: [],
+          message: "Session not found",
+        });
       }
 
-      // Return current set of 4 cards
-      const startIndex = session.currentIndex;
+      const cards = session.cards as InspirationCard[];
+      const startIndex = session.current_index || 0;
       const currentCards = cards.slice(startIndex, startIndex + 4);
 
       return NextResponse.json({
         success: true,
-        sessionId,
+        sessionId: session.id,
         inspirations: currentCards,
         total: cards.length,
         currentIndex: startIndex,
@@ -64,109 +74,182 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // No session - return empty
+    // Get latest session
+    const { data: sessions, error } = await supabase
+      .from("inspiration_sessions")
+      .select("*")
+      .eq("user_id", user.id)
+      .order("created_at", { ascending: false })
+      .limit(1);
+
+    if (error) {
+      console.error("Error fetching sessions:", error);
+      return NextResponse.json({ error: "Failed to fetch sessions" }, { status: 500 });
+    }
+
+    if (sessions && sessions.length > 0) {
+      const session = sessions[0];
+      const cards = session.cards as InspirationCard[];
+      const startIndex = session.current_index || 0;
+      const currentCards = cards.slice(startIndex, startIndex + 4);
+
+      return NextResponse.json({
+        success: true,
+        sessionId: session.id,
+        inspirations: currentCards,
+        total: cards.length,
+        currentIndex: startIndex,
+        hasMore: startIndex + 4 < cards.length,
+      });
+    }
+
     return NextResponse.json({
       success: true,
       inspirations: [],
       total: 0,
-      message: "No active session. Use POST to generate inspirations.",
+      message: "No sessions found. Use POST to generate inspirations.",
     });
   } catch (error) {
     console.error("Inspiration fetch error:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
 
 /**
  * POST /api/inspiration
- * Generate new inspiration cards based on user profile
+ * Generate new inspiration cards or shuffle existing ones
  * Body:
- * - userProfile: { name, interests, professionalBackground, organization, location }
- * - regenerate: boolean - if true, generates new cards for existing session
- * - sessionId: string - existing session ID for shuffle/regenerate
- * - shuffle: boolean - if true, shows next 4 cards from existing batch
+ * - regenerate: boolean - generate new cards
+ * - sessionId: string - existing session ID
+ * - shuffle: boolean - show next 4 cards from existing batch
+ * - saveInspiration: InspirationCard - save an inspiration to user's collection
  */
 export async function POST(request: NextRequest) {
   try {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const body = await request.json();
-    const { userProfile, regenerate, sessionId, shuffle } = body as {
-      userProfile?: UserProfile;
-      regenerate?: boolean;
-      sessionId?: string;
-      shuffle?: boolean;
-    };
+    const { regenerate, sessionId, shuffle, saveInspiration } = body;
+
+    // Save inspiration to user's collection
+    if (saveInspiration) {
+      const { data, error } = await supabase
+        .from("saved_inspirations")
+        .insert({
+          user_id: user.id,
+          title: saveInspiration.title,
+          summary: saveInspiration.summary,
+          category: saveInspiration.category,
+          relevance_explanation: saveInspiration.relevanceExplanation,
+          success_highlights: saveInspiration.successHighlights || [],
+          source_url: saveInspiration.sourceUrl,
+          location: saveInspiration.location,
+          tags: saveInspiration.tags || [],
+        })
+        .select()
+        .single();
+
+      if (error) {
+        console.error("Error saving inspiration:", error);
+        return NextResponse.json({ error: "Failed to save inspiration" }, { status: 500 });
+      }
+
+      return NextResponse.json({ success: true, savedInspiration: data });
+    }
 
     // Handle shuffle - show next 4 cards from existing batch
-    if (shuffle && sessionId && inspirationSessions.has(sessionId)) {
-      const session = inspirationSessions.get(sessionId)!;
-      let newIndex = session.currentIndex + 4;
-      
-      // If we've shown all cards, loop back to beginning
-      if (newIndex >= session.cards.length) {
+    if (shuffle && sessionId) {
+      const { data: session, error } = await supabase
+        .from("inspiration_sessions")
+        .select("*")
+        .eq("id", sessionId)
+        .eq("user_id", user.id)
+        .single();
+
+      if (error || !session) {
+        return NextResponse.json({ error: "Session not found" }, { status: 404 });
+      }
+
+      const cards = session.cards as InspirationCard[];
+      let newIndex = (session.current_index || 0) + 4;
+
+      // Loop back to beginning if we've shown all cards
+      if (newIndex >= cards.length) {
         newIndex = 0;
       }
-      
-      session.currentIndex = newIndex;
-      inspirationSessions.set(sessionId, session);
 
-      const currentCards = session.cards.slice(newIndex, newIndex + 4);
+      // Update session with new index
+      await supabase
+        .from("inspiration_sessions")
+        .update({ current_index: newIndex })
+        .eq("id", sessionId);
+
+      const currentCards = cards.slice(newIndex, newIndex + 4);
 
       return NextResponse.json({
         success: true,
         sessionId,
         inspirations: currentCards,
-        total: session.cards.length,
+        total: cards.length,
         currentIndex: newIndex,
-        hasMore: newIndex + 4 < session.cards.length,
+        hasMore: newIndex + 4 < cards.length,
       });
     }
 
-    // For regenerate or new generation, we need user profile
-    if (!userProfile || !userProfile.name || !userProfile.interests?.length) {
+    // Get user profile for AI generation
+    const { data: profile, error: profileError } = await supabase
+      .from("profiles")
+      .select("*")
+      .eq("id", user.id)
+      .single();
+
+    if (profileError || !profile) {
       return NextResponse.json(
-        { error: "User profile with name and interests is required" },
+        { error: "User profile not found. Please complete your profile first." },
+        { status: 400 }
+      );
+    }
+
+    const userProfile: UserProfile = {
+      name: profile.name || user.email?.split("@")[0] || "User",
+      interests: profile.interests || [],
+      professionalBackground: profile.professional_background,
+      organization: profile.organization,
+      location: profile.location,
+      skills: profile.skills,
+    };
+
+    if (!userProfile.interests.length) {
+      return NextResponse.json(
+        { error: "Please add some interests to your profile first." },
         { status: 400 }
       );
     }
 
     console.log("[Inspiration API] Generating inspirations for:", userProfile.name);
-    console.log("[Inspiration API] User interests:", userProfile.interests);
 
-    // Step 1: Generate search queries based on user profile
-    console.log("[Inspiration API] Generating search queries...");
-    const searchQueries = await azureOpenAI.generateSearchQueries({
-      name: userProfile.name,
-      interests: userProfile.interests,
-      professionalBackground: userProfile.professionalBackground,
-      organization: userProfile.organization,
-      location: userProfile.location,
-    });
-
+    // Step 1: Generate search queries
+    const searchQueries = await azureOpenAI.generateSearchQueries(userProfile);
     console.log("[Inspiration API] Generated queries:", searchQueries);
 
-    // Step 2: Perform web searches using Tavily
-    console.log("[Inspiration API] Searching for inspiration...");
-    const searchResults = await tavilySearch.searchForInspiration(
-      searchQueries,
-      5 // 5 results per query
-    );
-
+    // Step 2: Perform web searches
+    const searchResults = await tavilySearch.searchForInspiration(searchQueries, 5);
     console.log("[Inspiration API] Found", searchResults.length, "search results");
 
-    // Step 3: Generate inspiration cards using LLM
-    console.log("[Inspiration API] Generating inspiration cards...");
+    // Step 3: Generate inspiration cards
     const generatedCards = await azureOpenAI.generateInspirationCards(
       searchResults,
       userProfile,
-      20 // Generate 20 cards
+      20
     );
-
     console.log("[Inspiration API] Generated", generatedCards.length, "cards");
 
-    // Transform to InspirationCard format with IDs
+    // Transform cards
     const inspirationCards: InspirationCard[] = generatedCards.map((card, index) => ({
       id: `insp_${Date.now()}_${index}`,
       title: card.title,
@@ -180,20 +263,27 @@ export async function POST(request: NextRequest) {
       saved: false,
     }));
 
-    // Create or update session
-    const newSessionId = sessionId || `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    inspirationSessions.set(newSessionId, {
-      cards: inspirationCards,
-      currentIndex: 0,
-      createdAt: new Date(),
-    });
+    // Create new session in database
+    const { data: newSession, error: sessionError } = await supabase
+      .from("inspiration_sessions")
+      .insert({
+        user_id: user.id,
+        cards: inspirationCards,
+        current_index: 0,
+      })
+      .select()
+      .single();
 
-    // Return first 4 cards
+    if (sessionError) {
+      console.error("Error creating session:", sessionError);
+      return NextResponse.json({ error: "Failed to save session" }, { status: 500 });
+    }
+
     const currentCards = inspirationCards.slice(0, 4);
 
     return NextResponse.json({
       success: true,
-      sessionId: newSessionId,
+      sessionId: newSession.id,
       inspirations: currentCards,
       total: inspirationCards.length,
       currentIndex: 0,
@@ -202,11 +292,51 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error("AI inspiration generation error:", error);
     return NextResponse.json(
-      { 
+      {
         error: "Failed to generate inspirations",
-        details: error instanceof Error ? error.message : "Unknown error"
+        details: error instanceof Error ? error.message : "Unknown error",
       },
       { status: 500 }
     );
+  }
+}
+
+/**
+ * DELETE /api/inspiration
+ * Remove a saved inspiration
+ * Query params:
+ * - id: inspiration ID to delete
+ */
+export async function DELETE(request: NextRequest) {
+  try {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const { searchParams } = new URL(request.url);
+    const id = searchParams.get("id");
+
+    if (!id) {
+      return NextResponse.json({ error: "Inspiration ID required" }, { status: 400 });
+    }
+
+    const { error } = await supabase
+      .from("saved_inspirations")
+      .delete()
+      .eq("id", id)
+      .eq("user_id", user.id);
+
+    if (error) {
+      console.error("Error deleting inspiration:", error);
+      return NextResponse.json({ error: "Failed to delete inspiration" }, { status: 500 });
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error("Delete inspiration error:", error);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

@@ -1,25 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@/lib/supabase/server";
 import { azureOpenAI } from "@/lib/services/azure-openai";
 import type { GeneratedProposal, ProposalRequirements, UserProfile, ResearchSection } from "@/types";
-
-// In-memory storage for generated proposals (in production, use database)
-const proposalCache = new Map<
-  string,
-  {
-    proposal: GeneratedProposal;
-    createdAt: Date;
-  }
->();
-
-// Reference to research cache (would be shared in production)
-const researchCache = new Map<
-  string,
-  {
-    sections: ResearchSection[];
-    summary: string;
-    createdAt: Date;
-  }
->();
 
 /**
  * POST /api/proposals/[id]/generate
@@ -31,7 +13,6 @@ const researchCache = new Map<
  * 
  * Body:
  * - idea: { title, description, category }
- * - userProfile: { name, interests, professionalBackground, organization }
  * - requirements: { hasVenue, hasFunding, hasTeam, budget, timeline, additionalNotes }
  * - researchSummary: (optional) pre-computed research if available
  * - forceRefresh: boolean
@@ -41,11 +22,17 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { id } = await params;
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const { id: ideaId } = await params;
     const body = await request.json();
     const { 
       idea, 
-      userProfile, 
       requirements, 
       researchSummary,
       forceRefresh 
@@ -55,7 +42,6 @@ export async function POST(
         description: string;
         category: string;
       };
-      userProfile?: UserProfile;
       requirements?: ProposalRequirements;
       researchSummary?: {
         sections: Array<{
@@ -77,39 +63,84 @@ export async function POST(
       );
     }
 
-    // Check cache first
-    const cacheKey = `proposal_${id}`;
-    if (!forceRefresh && proposalCache.has(cacheKey)) {
-      const cached = proposalCache.get(cacheKey)!;
-      return NextResponse.json({
-        success: true,
-        proposalId: id,
-        proposal: cached.proposal,
-        cached: true,
-        generatedAt: cached.createdAt.toISOString(),
-      });
+    // Check for existing proposal first
+    if (!forceRefresh) {
+      const { data: existingProposal } = await supabase
+        .from("proposals")
+        .select("*")
+        .eq("idea_id", ideaId)
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .single();
+
+      if (existingProposal) {
+        const proposal: GeneratedProposal = {
+          title: existingProposal.title,
+          visionStatement: existingProposal.vision_statement,
+          goals: existingProposal.goals || [],
+          culturalImpact: existingProposal.cultural_impact,
+          timeline: existingProposal.timeline,
+          budget: existingProposal.budget,
+          collaboratorsNeeded: existingProposal.collaborators_needed || [],
+          resources: existingProposal.resources || [],
+          challengesAndMitigation: existingProposal.challenges_and_mitigation || [],
+          nextSteps: existingProposal.next_steps || [],
+        };
+
+        return NextResponse.json({
+          success: true,
+          proposalId: existingProposal.id,
+          proposal,
+          cached: true,
+          generatedAt: existingProposal.created_at,
+        });
+      }
     }
+
+    // Get user profile
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("*")
+      .eq("id", user.id)
+      .single();
+
+    const userProfile: UserProfile = {
+      name: profile?.name || user.email?.split("@")[0] || "Project Organizer",
+      interests: profile?.interests || [],
+      professionalBackground: profile?.professional_background,
+      organization: profile?.organization,
+      location: profile?.location,
+      skills: profile?.skills,
+    };
 
     console.log("[Proposal Generation] Starting for:", idea.title);
 
     // Get research synthesis if not provided
     let research = researchSummary;
     if (!research) {
-      const researchCacheKey = `research_${id}`;
-      if (researchCache.has(researchCacheKey)) {
-        const cachedResearch = researchCache.get(researchCacheKey)!;
+      const { data: ideaResearch } = await supabase
+        .from("idea_research")
+        .select("*")
+        .eq("idea_id", ideaId)
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .single();
+
+      if (ideaResearch) {
+        const sections = ideaResearch.sections as ResearchSection[];
         research = {
-          sections: cachedResearch.sections.map((s) => ({
+          sections: sections.map((s) => ({
             aspect: s.aspect,
             title: s.title,
             content: s.content,
             keyInsights: s.keyInsights,
             actionItems: s.actionItems,
           })),
-          summary: cachedResearch.summary,
+          summary: ideaResearch.summary || "",
         };
       } else {
-        // Create a minimal research summary if none exists
         research = {
           sections: [],
           summary: `Research pending for: ${idea.title}`,
@@ -124,27 +155,50 @@ export async function POST(
     const generatedProposal = await azureOpenAI.generateProposal(
       idea,
       research,
-      userProfile || {
-        name: "Project Organizer",
-        interests: [],
-      },
+      userProfile,
       requirements
     );
 
     console.log("[Proposal Generation] Proposal generated successfully");
 
-    // Cache the proposal
-    proposalCache.set(cacheKey, {
-      proposal: generatedProposal,
-      createdAt: new Date(),
-    });
+    // Save proposal to database
+    const { data: savedProposal, error: saveError } = await supabase
+      .from("proposals")
+      .insert({
+        user_id: user.id,
+        idea_id: ideaId,
+        title: generatedProposal.title,
+        vision_statement: generatedProposal.visionStatement,
+        goals: generatedProposal.goals,
+        cultural_impact: generatedProposal.culturalImpact,
+        timeline: generatedProposal.timeline,
+        budget: generatedProposal.budget,
+        collaborators_needed: generatedProposal.collaboratorsNeeded,
+        resources: generatedProposal.resources,
+        challenges_and_mitigation: generatedProposal.challengesAndMitigation,
+        next_steps: generatedProposal.nextSteps,
+        requirements: requirements || null,
+        status: "draft",
+      })
+      .select()
+      .single();
+
+    if (saveError) {
+      console.error("Error saving proposal:", saveError);
+    }
+
+    // Update idea status
+    await supabase
+      .from("ideas")
+      .update({ status: "proposal_created", updated_at: new Date().toISOString() })
+      .eq("id", ideaId);
 
     return NextResponse.json({
       success: true,
-      proposalId: id,
+      proposalId: savedProposal?.id || ideaId,
       proposal: generatedProposal,
       cached: false,
-      generatedAt: new Date().toISOString(),
+      generatedAt: savedProposal?.created_at || new Date().toISOString(),
     });
   } catch (error) {
     console.error("Proposal generation error:", error);
@@ -160,32 +214,59 @@ export async function POST(
 
 /**
  * GET /api/proposals/[id]/generate
- * Get cached generated proposal
+ * Get generated proposal for an idea
  */
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { id } = await params;
-    const cacheKey = `proposal_${id}`;
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
 
-    if (proposalCache.has(cacheKey)) {
-      const cached = proposalCache.get(cacheKey)!;
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const { id: ideaId } = await params;
+
+    const { data: existingProposal, error } = await supabase
+      .from("proposals")
+      .select("*")
+      .eq("idea_id", ideaId)
+      .eq("user_id", user.id)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .single();
+
+    if (error || !existingProposal) {
       return NextResponse.json({
         success: true,
-        proposalId: id,
-        proposal: cached.proposal,
-        cached: true,
-        generatedAt: cached.createdAt.toISOString(),
+        proposalId: ideaId,
+        proposal: null,
+        message: "No generated proposal available. Use POST to generate.",
       });
     }
 
+    const proposal: GeneratedProposal = {
+      title: existingProposal.title,
+      visionStatement: existingProposal.vision_statement,
+      goals: existingProposal.goals || [],
+      culturalImpact: existingProposal.cultural_impact,
+      timeline: existingProposal.timeline,
+      budget: existingProposal.budget,
+      collaboratorsNeeded: existingProposal.collaborators_needed || [],
+      resources: existingProposal.resources || [],
+      challengesAndMitigation: existingProposal.challenges_and_mitigation || [],
+      nextSteps: existingProposal.next_steps || [],
+    };
+
     return NextResponse.json({
       success: true,
-      proposalId: id,
-      proposal: null,
-      message: "No generated proposal available. Use POST to generate.",
+      proposalId: existingProposal.id,
+      proposal,
+      cached: true,
+      generatedAt: existingProposal.created_at,
     });
   } catch (error) {
     console.error("Get proposal error:", error);
