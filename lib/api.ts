@@ -61,22 +61,56 @@ async function apiRequest<T>(
 // ============================================
 
 export const authApi = {
-  login: (email: string, password: string) =>
-    apiRequest<{ user: User; token: string }>("/auth/login", {
+  login: async (email: string, password: string) => {
+    const token = localStorage.getItem("auth_token");
+    const response = await fetch(`${API_BASE_URL}/auth/login`, {
       method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
       body: JSON.stringify({ email, password }),
-    }),
+    });
+    return response.json();
+  },
 
-  register: (name: string, email: string, password: string) =>
-    apiRequest<{ user: User; token: string }>("/auth/register", {
+  register: async (data: { name: string; email: string; password: string; interests?: string[] }) => {
+    const response = await fetch(`${API_BASE_URL}/auth/register`, {
       method: "POST",
-      body: JSON.stringify({ name, email, password }),
-    }),
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(data),
+    });
+    return response.json();
+  },
 
-  logout: () =>
-    apiRequest<void>("/auth/logout", {
+  logout: async () => {
+    const token = localStorage.getItem("auth_token");
+    await fetch(`${API_BASE_URL}/auth/logout`, {
       method: "POST",
-    }),
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+    });
+    return { success: true };
+  },
+
+  me: async () => {
+    const token = localStorage.getItem("auth_token");
+    if (!token) {
+      return { success: false, error: "No token" };
+    }
+    const response = await fetch(`${API_BASE_URL}/auth/me`, {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+    });
+    return response.json();
+  },
 
   getCurrentUser: () => apiRequest<User>("/auth/me"),
 
