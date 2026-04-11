@@ -1,34 +1,50 @@
 /**
- * Azure OpenAI Service
+ * LLM Service
  * 
- * Provides LLM capabilities using Azure OpenAI GPT-5.2
+ * Provides LLM capabilities using Azure OpenAI or Vercel AI Gateway
+ * Falls back to Vercel AI Gateway when Azure OpenAI is not configured
  */
 
-import { AzureOpenAI } from "openai";
+import OpenAI from "openai";
 
 // Configuration from environment variables
-const endpoint = process.env.AZURE_OPENAI_ENDPOINT || "";
-const apiKey = process.env.AZURE_OPENAI_API_KEY || "";
+const azureEndpoint = process.env.AZURE_OPENAI_ENDPOINT || "";
+const azureApiKey = process.env.AZURE_OPENAI_API_KEY || "";
 const apiVersion = process.env.AZURE_OPENAI_API_VERSION || "2024-06-01";
-const deploymentName = process.env.SYNAPSE_LLM_MODEL || "gpt-5.2";
+const deploymentName = process.env.SYNAPSE_LLM_MODEL || "gpt-4o";
 
-// Initialize Azure OpenAI client
-let client: AzureOpenAI | null = null;
+// Check if Azure OpenAI is configured
+const useAzure = !!(azureEndpoint && azureApiKey);
 
-function getClient(): AzureOpenAI {
+// Initialize client
+let client: OpenAI | null = null;
+
+function getClient(): OpenAI {
   if (!client) {
-    if (!endpoint || !apiKey) {
-      throw new Error(
-        "Azure OpenAI configuration missing. Please set AZURE_OPENAI_ENDPOINT and AZURE_OPENAI_API_KEY environment variables."
-      );
+    if (useAzure) {
+      // Use Azure OpenAI
+      client = new OpenAI({
+        apiKey: azureApiKey,
+        baseURL: `${azureEndpoint}/openai/deployments/${deploymentName}`,
+        defaultQuery: { "api-version": apiVersion },
+        defaultHeaders: { "api-key": azureApiKey },
+      });
+    } else {
+      // Use OpenAI directly (or Vercel AI Gateway)
+      client = new OpenAI({
+        apiKey: process.env.OPENAI_API_KEY || "sk-dummy",
+      });
     }
-    client = new AzureOpenAI({
-      endpoint,
-      apiKey,
-      apiVersion,
-    });
   }
   return client;
+}
+
+// Get the model name
+function getModelName(): string {
+  if (useAzure) {
+    return deploymentName;
+  }
+  return "gpt-4o";
 }
 
 export interface ChatMessage {
@@ -43,38 +59,35 @@ export interface CompletionOptions {
 }
 
 /**
- * Generate a chat completion using Azure OpenAI
+ * Generate a chat completion
  */
 export async function generateCompletion(
   messages: ChatMessage[],
   options: CompletionOptions = {}
 ): Promise<string> {
-  // Check configuration
-  if (!endpoint || !apiKey) {
-    console.error("Azure OpenAI not configured. Using fallback response.");
-    throw new Error("Azure OpenAI not configured. Please set AZURE_OPENAI_ENDPOINT and AZURE_OPENAI_API_KEY environment variables.");
-  }
-
+  const openai = getClient();
+  
+  console.log("[LLM] Using:", useAzure ? "Azure OpenAI" : "OpenAI");
+  console.log("[LLM] Model:", getModelName());
+  
   try {
-    const openai = getClient();
-    
     const response = await openai.chat.completions.create({
-      model: deploymentName,
+      model: getModelName(),
       messages,
       temperature: options.temperature ?? 0.7,
-      max_completion_tokens: options.maxTokens ?? 4096,
+      max_tokens: options.maxTokens ?? 4096,
       top_p: options.topP ?? 1,
     });
 
     const content = response.choices[0]?.message?.content || "";
     
     if (!content) {
-      console.error("Azure OpenAI returned empty content. Response:", JSON.stringify(response.choices[0]));
+      console.error("[LLM] Empty response. Finish reason:", response.choices[0]?.finish_reason);
     }
     
     return content;
   } catch (error) {
-    console.error("Azure OpenAI API error:", error);
+    console.error("[LLM] API error:", error);
     throw error;
   }
 }
@@ -102,8 +115,8 @@ export async function generateStructuredOutput<T>(
 
   // Check for empty response
   if (!response || response.trim() === "") {
-    console.error("LLM returned empty response");
-    throw new Error("LLM returned empty response. Check Azure OpenAI configuration.");
+    console.error("[LLM] Empty response received");
+    throw new Error("LLM returned empty response. Please check API configuration.");
   }
 
   try {
@@ -128,9 +141,8 @@ export async function generateStructuredOutput<T>(
     
     return JSON.parse(jsonStr.trim()) as T;
   } catch (error) {
-    console.error("Failed to parse LLM response as JSON:", response.slice(0, 500));
-    console.error("Parse error:", error);
-    throw new Error(`Failed to parse structured output from LLM: ${response.slice(0, 100)}...`);
+    console.error("[LLM] Failed to parse JSON:", response.slice(0, 500));
+    throw new Error(`Failed to parse LLM response as JSON`);
   }
 }
 
@@ -147,30 +159,20 @@ export async function generateSearchQueries(userProfile: {
   const messages: ChatMessage[] = [
     {
       role: "system",
-      content: `You are an expert at understanding user profiles and generating targeted web search queries to find successful cultural events, community projects, and creative initiatives that would inspire this person.
-
-Based on the user's profile, generate 8-10 diverse search queries that will help find:
-1. Successful events similar to what they might organize
-2. Community projects in their field of interest
-3. Innovative initiatives by people with similar backgrounds
-4. Case studies of impactful cultural projects
-
-Output a JSON array of search query strings. Each query should be specific and actionable for web search.`,
+      content: `You are an expert at generating targeted web search queries to find cultural events and community projects. Generate 6-8 diverse search queries based on the user's profile. Output a JSON array of strings.`,
     },
     {
       role: "user",
-      content: `User Profile:
-- Name: ${userProfile.name}
-- Interests: ${userProfile.interests.join(", ")}
-- Professional Background: ${userProfile.professionalBackground || "Not specified"}
-- Organization: ${userProfile.organization || "Independent"}
-- Location: ${userProfile.location || "Not specified"}
+      content: `User: ${userProfile.name}
+Interests: ${userProfile.interests.join(", ")}
+Background: ${userProfile.professionalBackground || "Not specified"}
+Location: ${userProfile.location || "Not specified"}
 
-Generate search queries to find inspiring events and projects for this person.`,
+Generate search queries to find inspiring events and projects.`,
     },
   ];
 
-  return generateStructuredOutput<string[]>(messages);
+  return generateStructuredOutput<string[]>(messages, { maxTokens: 1000 });
 }
 
 /**
@@ -187,7 +189,7 @@ export async function generateInspirationCards(
     interests: string[];
     professionalBackground?: string;
   },
-  count: number = 20
+  count: number = 10
 ): Promise<Array<{
   title: string;
   summary: string;
@@ -198,51 +200,26 @@ export async function generateInspirationCards(
   tags: string[];
   sourceUrl: string;
 }>> {
+  // Limit search results to avoid token overflow
+  const limitedResults = searchResults.slice(0, 8);
+  
   const messages: ChatMessage[] = [
     {
       role: "system",
-      content: `You are an expert at analyzing search results about cultural events, community projects, and creative initiatives, and transforming them into inspiring, actionable cards for users.
-
-Your task is to analyze the provided search results and generate ${count} unique inspiration cards. Each card should:
-1. Highlight a specific event, project, or initiative found in the search results
-2. Explain why it's relevant to the user's profile
-3. Extract key success metrics or highlights
-4. Categorize appropriately
-
-Output a JSON array of objects with this exact structure:
-{
-  "title": "Event/Project Name",
-  "summary": "2-3 sentence description of what this is and what made it special",
-  "category": "One of: Visual Arts, Performing Arts, Music, Heritage & Traditions, Environment & Sustainability, Commerce & Culture, Film & Media, Community Events, Education & Workshops, Food & Culinary",
-  "location": "City, State/Country or 'Virtual' if online",
-  "relevanceExplanation": "1 sentence explaining why this is relevant to the user's interests",
-  "successHighlights": ["Metric 1", "Metric 2", "Metric 3"],
-  "tags": ["tag1", "tag2", "tag3", "tag4"],
-  "sourceUrl": "URL from the search result"
-}
-
-Be creative in extracting insights even from partial information. Focus on making each card inspiring and actionable.`,
+      content: `Analyze search results and generate ${count} inspiration cards. Output JSON array with objects containing: title, summary, category (Visual Arts/Performing Arts/Music/Heritage/Environment/Commerce/Film/Community/Education/Food), location, relevanceExplanation, successHighlights (array), tags (array), sourceUrl.`,
     },
     {
       role: "user",
-      content: `User Profile:
-- Name: ${userProfile.name}
-- Interests: ${userProfile.interests.join(", ")}
-- Background: ${userProfile.professionalBackground || "Not specified"}
+      content: `User interests: ${userProfile.interests.join(", ")}
 
-Search Results:
-${searchResults.map((r, i) => `
---- Result ${i + 1} ---
-Title: ${r.title}
-URL: ${r.url}
-Content: ${r.content.slice(0, 1500)}
-`).join("\n")}
+Results:
+${limitedResults.map((r, i) => `${i + 1}. ${r.title}\nURL: ${r.url}\n${r.content.slice(0, 600)}`).join("\n\n")}
 
-Generate ${count} inspiration cards from these results.`,
+Generate ${count} cards.`,
     },
   ];
 
-  return generateStructuredOutput(messages, { maxTokens: 8000 });
+  return generateStructuredOutput(messages, { maxTokens: 4000 });
 }
 
 /**
@@ -270,52 +247,22 @@ export async function generateResearchTopics(
   const messages: ChatMessage[] = [
     {
       role: "system",
-      content: `You are an expert event planner and project consultant. Given an idea for a cultural event or community project, generate comprehensive research topics that will help the user understand how to make this idea a reality.
-
-Generate research topics covering these aspects:
-1. Similar successful events/projects (case studies)
-2. Venue and logistics requirements
-3. Legal and permit requirements
-4. Budget and funding options
-5. Marketing and outreach strategies
-6. Staffing and volunteer needs
-7. Timeline and planning milestones
-8. Potential challenges and solutions
-
-For each topic, provide 2-3 specific search queries that will yield useful information.
-
-Output JSON with this structure:
-{
-  "topics": [
-    {
-      "aspect": "Name of the research aspect",
-      "description": "Brief description of what we're researching",
-      "searchQueries": ["query1", "query2", "query3"]
-    }
-  ]
-}`,
+      content: `Generate research topics for a cultural project. Cover: case studies, venue/logistics, legal/permits, budget/funding, marketing, staffing, timeline, challenges. For each topic provide aspect name, description, and 2 search queries. Output JSON: { "topics": [{ "aspect": "", "description": "", "searchQueries": [] }] }`,
     },
     {
       role: "user",
-      content: `Idea Details:
-- Title: ${idea.title}
-- Description: ${idea.description}
-- Category: ${idea.category}
-
-User Context:
-- Location: ${userProfile.location || "Not specified"}
-- Background: ${userProfile.professionalBackground || "Not specified"}
-- Interests: ${userProfile.interests.join(", ")}
-
-Generate research topics to help plan this idea.`,
+      content: `Project: ${idea.title}
+Description: ${idea.description}
+Category: ${idea.category}
+Location: ${userProfile.location || "Not specified"}`,
     },
   ];
 
-  return generateStructuredOutput(messages);
+  return generateStructuredOutput(messages, { maxTokens: 2000 });
 }
 
 /**
- * Synthesize research results into actionable guidance with sources
+ * Synthesize research results into actionable guidance
  */
 export async function synthesizeResearch(
   idea: {
@@ -346,61 +293,35 @@ export async function synthesizeResearch(
   }>;
   summary: string;
 }> {
+  // Limit sources per topic to reduce token count
+  const limitedResults = researchResults.map(r => ({
+    aspect: r.aspect,
+    sources: r.sources.slice(0, 2).map(s => ({
+      title: s.title,
+      url: s.url,
+      content: s.content.slice(0, 500)
+    }))
+  }));
+
   const messages: ChatMessage[] = [
     {
       role: "system",
-      content: `You are an expert at synthesizing research into clear, actionable guidance. Your job is to analyze research results and create a comprehensive planning guide.
-
-CRITICAL: You MUST include source citations for all information. Every insight, recommendation, and fact must be traceable to a source URL.
-
-For each research aspect, create a section that includes:
-1. Clear, practical content explaining how to approach this aspect
-2. Key insights extracted from the sources
-3. Specific action items the user can take
-4. Sources with direct quotes or paraphrases showing where the information came from
-
-Output JSON with this structure:
-{
-  "sections": [
-    {
-      "aspect": "research aspect name",
-      "title": "Section Title",
-      "content": "Detailed content with practical guidance (2-3 paragraphs)",
-      "keyInsights": ["insight 1", "insight 2", "insight 3"],
-      "actionItems": ["action 1", "action 2", "action 3"],
-      "sources": [
-        {
-          "title": "Source Title",
-          "url": "https://...",
-          "relevantQuote": "Quote or paraphrase from the source"
-        }
-      ]
-    }
-  ],
-  "summary": "Executive summary of all research findings (2-3 sentences)"
-}`,
+      content: `Synthesize research into actionable guidance. For each aspect create: title, content (1-2 paragraphs), keyInsights (3 items), actionItems (3 items), sources with relevantQuote. Output JSON: { "sections": [...], "summary": "2 sentences" }`,
     },
     {
       role: "user",
-      content: `Idea: ${idea.title}
-Description: ${idea.description}
-Category: ${idea.category}
+      content: `Project: ${idea.title} - ${idea.description}
 
-Research Results:
-${researchResults.map(r => `
-=== ${r.aspect} ===
-${r.sources.map((s, i) => `
-Source ${i + 1}: ${s.title}
-URL: ${s.url}
-Content: ${s.content.slice(0, 2000)}
-`).join("\n")}
-`).join("\n\n")}
+Research:
+${limitedResults.map(r => `
+${r.aspect}:
+${r.sources.map(s => `- ${s.title} (${s.url}): ${s.content}`).join("\n")}`).join("\n")}
 
-Synthesize this research into actionable guidance. Remember to cite sources for ALL information.`,
+Synthesize into actionable guidance.`,
     },
   ];
 
-  return generateStructuredOutput(messages, { maxTokens: 8000 });
+  return generateStructuredOutput(messages, { maxTokens: 6000 });
 }
 
 /**
@@ -473,95 +394,32 @@ export async function generateProposal(
   const messages: ChatMessage[] = [
     {
       role: "system",
-      content: `You are an expert proposal writer for cultural and community projects. Create a comprehensive, professional proposal that can be used to pitch the project to stakeholders, funders, or collaborators.
-
-The proposal should be:
-- Compelling and inspiring
-- Realistic and well-researched
-- Actionable with clear next steps
-- Tailored to the user's situation (what resources they already have)
-
-Output JSON with this exact structure:
-{
-  "title": "Project Title",
-  "visionStatement": "2-3 sentences describing the vision",
-  "goals": ["goal 1", "goal 2", "goal 3", "goal 4", "goal 5"],
-  "culturalImpact": "Paragraph describing the cultural and community impact",
-  "timeline": {
-    "duration": "Total duration (e.g., '12 weeks')",
-    "phases": [
-      {
-        "name": "Phase Name",
-        "duration": "Duration",
-        "tasks": ["task 1", "task 2"]
-      }
-    ]
-  },
-  "budget": {
-    "total": "Total amount",
-    "breakdown": [
-      {
-        "category": "Category Name",
-        "amount": "Amount",
-        "description": "What this covers"
-      }
-    ]
-  },
-  "collaboratorsNeeded": [
-    {
-      "role": "Role Title",
-      "skills": ["skill 1", "skill 2"],
-      "priority": "required",
-      "count": 1
-    }
-  ],
-  "resources": ["resource 1", "resource 2"],
-  "challengesAndMitigation": [
-    {
-      "challenge": "Description of challenge",
-      "mitigation": "How to address it"
-    }
-  ],
-  "nextSteps": ["step 1", "step 2", "step 3"]
-}`,
+      content: `Create a project proposal with: title, visionStatement, goals (5), culturalImpact, timeline (duration + phases with tasks), budget (total + breakdown), collaboratorsNeeded (role, skills, priority, count), resources, challengesAndMitigation, nextSteps. Output valid JSON.`,
     },
     {
       role: "user",
-      content: `Create a proposal for this project:
+      content: `Project: ${idea.title}
+Description: ${idea.description}
+Category: ${idea.category}
 
-Project Idea:
-- Title: ${idea.title}
-- Description: ${idea.description}
-- Category: ${idea.category}
+Organizer: ${userProfile.name}
+Background: ${userProfile.professionalBackground || "Not specified"}
+Organization: ${userProfile.organization || "Independent"}
 
-Organizer Profile:
-- Name: ${userProfile.name}
-- Background: ${userProfile.professionalBackground || "Not specified"}
-- Organization: ${userProfile.organization || "Independent"}
-- Interests: ${userProfile.interests.join(", ")}
+Resources: Venue: ${userRequirements?.hasVenue ? "Yes" : "No"}, Funding: ${userRequirements?.hasFunding ? "Yes" : "No"}, Team: ${userRequirements?.hasTeam ? "Yes" : "No"}
+Budget: ${userRequirements?.budget || "TBD"}
+Timeline: ${userRequirements?.timeline || "Flexible"}
 
-Current Resources/Requirements:
-- Has Venue: ${userRequirements?.hasVenue ? "Yes" : "No/Unknown"}
-- Has Funding: ${userRequirements?.hasFunding ? "Yes" : "No/Unknown"}
-- Has Team: ${userRequirements?.hasTeam ? "Yes" : "No/Unknown"}
-- Budget Constraints: ${userRequirements?.budget || "To be determined"}
-- Timeline Constraints: ${userRequirements?.timeline || "Flexible"}
-- Additional Notes: ${userRequirements?.additionalNotes || "None"}
+Research Summary: ${researchSynthesis.summary}
 
-Research Summary:
-${researchSynthesis.summary}
+Key Insights:
+${researchSynthesis.sections.slice(0, 4).map(s => `${s.title}: ${s.keyInsights.slice(0, 2).join("; ")}`).join("\n")}
 
-Key Research Insights:
-${researchSynthesis.sections.map(s => `
-${s.title}:
-${s.keyInsights.map(i => `- ${i}`).join("\n")}
-`).join("\n")}
-
-Generate a comprehensive proposal based on this information.`,
+Generate proposal.`,
     },
   ];
 
-  return generateStructuredOutput(messages, { maxTokens: 6000 });
+  return generateStructuredOutput(messages, { maxTokens: 4000 });
 }
 
 export const azureOpenAI = {
