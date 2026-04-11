@@ -165,7 +165,7 @@ function NewProposalForm() {
     }
   };
 
-  const handleSaveProposal = async (status: "draft" | "published") => {
+  const handleSaveProposal = async (status: "draft" | "finalized") => {
     if (!generatedProposal || !ideaId) return;
     
     setIsLoading(true);
@@ -561,7 +561,7 @@ function NewProposalForm() {
               </Button>
               <Button 
                 className="flex-1" 
-                onClick={() => handleSaveProposal("published")}
+                onClick={() => handleSaveProposal("finalized")}
                 disabled={isLoading}
               >
                 {isLoading ? (
@@ -572,7 +572,7 @@ function NewProposalForm() {
                 ) : (
                   <>
                     <CheckCircle2 className="mr-2 h-4 w-4" />
-                    Publish Proposal
+                    Finalize Proposal
                   </>
                 )}
               </Button>

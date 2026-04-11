@@ -35,7 +35,7 @@ interface Proposal {
   id: string;
   title: string;
   vision_statement: string | null;
-  status: "draft" | "published" | "archived";
+  status: "draft" | "finalized" | "submitted";
   goals: string[] | null;
   cultural_impact: string | null;
   timeline: {
@@ -96,11 +96,11 @@ export default function ProposalDetailPage({
       const response = await fetch(`/api/proposals/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "published" }),
+        body: JSON.stringify({ status: "finalized" }),
       });
 
       if (response.ok) {
-        setProposal({ ...proposal, status: "published" });
+        setProposal({ ...proposal, status: "finalized" });
       }
     } catch (error) {
       console.error("Error publishing proposal:", error);
@@ -190,7 +190,7 @@ export default function ProposalDetailPage({
               <h1 className="font-serif text-3xl font-bold">{proposal.title}</h1>
               <Badge
                 variant={
-                  proposal.status === "published" ? "default" : "outline"
+                  proposal.status === "finalized" ? "default" : "outline"
                 }
               >
                 {proposal.status}

@@ -40,7 +40,7 @@ interface Proposal {
   id: string;
   title: string;
   vision_statement: string | null;
-  status: "draft" | "published" | "archived";
+  status: "draft" | "finalized" | "submitted";
   budget: { total: string } | null;
   collaborators_needed: Array<{ role: string }> | null;
   updated_at: string;
@@ -54,12 +54,12 @@ const statusConfig = {
     label: "Draft",
     variant: "outline" as const,
   },
-  published: {
-    label: "Published",
+  finalized: {
+    label: "Finalized",
     variant: "default" as const,
   },
-  archived: {
-    label: "Archived",
+  submitted: {
+    label: "Submitted",
     variant: "secondary" as const,
   },
 };
@@ -95,8 +95,8 @@ export default function ProposalsPage() {
   );
 
   const draftProposals = filteredProposals.filter((p) => p.status === "draft");
-  const publishedProposals = filteredProposals.filter(
-    (p) => p.status === "published"
+  const finalizedProposals = filteredProposals.filter(
+    (p) => p.status === "finalized" || p.status === "submitted"
   );
 
   const handleDelete = async (id: string) => {
@@ -173,8 +173,8 @@ export default function ProposalsPage() {
             <TabsTrigger value="drafts">
               Drafts ({draftProposals.length})
             </TabsTrigger>
-            <TabsTrigger value="published">
-              Published ({publishedProposals.length})
+            <TabsTrigger value="finalized">
+              Finalized ({finalizedProposals.length})
             </TabsTrigger>
           </Tabs>
 
@@ -212,20 +212,20 @@ export default function ProposalsPage() {
             )}
           </TabsContent>
 
-          <TabsContent value="published" className="space-y-6">
-            {publishedProposals.length === 0 ? (
+          <TabsContent value="finalized" className="space-y-6">
+            {finalizedProposals.length === 0 ? (
               <Card className="p-12 text-center">
                 <Send className="mx-auto h-12 w-12 text-muted-foreground" />
                 <h3 className="mt-4 text-lg font-semibold">
-                  No published proposals
+                  No finalized proposals
                 </h3>
                 <p className="mt-2 text-muted-foreground">
-                  Publish a draft proposal to share it with the community
+                  Finalize a draft proposal to share it with the community
                 </p>
               </Card>
             ) : (
               <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-                {publishedProposals.map((proposal) => (
+                {finalizedProposals.map((proposal) => (
                   <ProposalCard
                     key={proposal.id}
                     proposal={proposal}
