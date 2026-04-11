@@ -1,12 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
+import { createToken } from "@/lib/auth";
 
-// TODO: Replace with actual registration logic
-// This is a placeholder for backend integration with TypeScript agentic workflow
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { email, password, name, interests } = body;
+    const { email, password, name, interests, professionalBackground, organization, location, bio, skills } = body;
 
     // Validate input
     if (!email || !password || !name) {
@@ -33,31 +37,72 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // TODO: Implement actual registration
-    // Example integration points:
-    // 1. Check if user already exists
-    // 2. Hash password with bcrypt
-    // 3. Store user in database
-    // 4. Send verification email
-    // 5. Generate JWT or session token
+    // Check if user already exists
+    const { data: existingUser } = await supabase
+      .from("profiles")
+      .select("id")
+      .eq("email", email)
+      .single();
 
-    // Placeholder response - replace with actual user data
-    const mockUser = {
-      id: "user_" + Date.now(),
-      email: email,
-      name: name,
-      interests: interests || [],
-      createdAt: new Date().toISOString(),
-    };
+    if (existingUser) {
+      return NextResponse.json(
+        { error: "User with this email already exists" },
+        { status: 409 }
+      );
+    }
 
-    // TODO: Generate actual token
-    const mockToken = "placeholder_jwt_token";
+    // Create user with hashed password using PostgreSQL crypt function
+    const { data: newUser, error: insertError } = await supabase.rpc(
+      "create_user_with_password",
+      {
+        user_email: email,
+        user_password: password,
+        user_name: name,
+        user_interests: interests || [],
+        user_professional_background: professionalBackground || null,
+        user_organization: organization || null,
+        user_location: location || null,
+        user_bio: bio || null,
+        user_skills: skills || [],
+      }
+    );
 
-    return NextResponse.json({
-      success: true,
-      user: mockUser,
-      token: mockToken,
+    if (insertError) {
+      console.error("Error creating user:", insertError);
+      // If the RPC function doesn't exist, fall back to direct insert
+      // Note: This requires the password to be hashed on the client or we need to create the function
+      return NextResponse.json(
+        { error: "Failed to create user. Please try again." },
+        { status: 500 }
+      );
+    }
+
+    // Generate JWT token
+    const token = await createToken({
+      userId: newUser.id,
+      email: newUser.email,
     });
+
+    // Create response with cookie
+    const response = NextResponse.json({
+      success: true,
+      user: {
+        id: newUser.id,
+        email: newUser.email,
+        name: newUser.name,
+        interests: newUser.interests || [],
+      },
+    });
+
+    response.cookies.set("auth_token", token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      maxAge: 60 * 60 * 24 * 7, // 7 days
+      path: "/",
+    });
+
+    return response;
   } catch (error) {
     console.error("Registration error:", error);
     return NextResponse.json(
