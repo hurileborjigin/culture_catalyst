@@ -2,24 +2,30 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { azureOpenAI } from "@/lib/services/azure-openai";
 import { tavilySearch } from "@/lib/services/tavily-search";
+import { verifyToken } from "@/lib/auth";
 import type { InspirationCard, UserProfile } from "@/types";
+
+// Helper to get user ID from JWT token in cookie
+async function getUserIdFromRequest(request: NextRequest): Promise<string | null> {
+  const token = request.cookies.get("auth_token")?.value;
+  if (!token) return null;
+  
+  const payload = await verifyToken(token);
+  return payload?.userId || null;
+}
 
 /**
  * GET /api/inspiration
  * Get inspiration sessions and saved inspirations for the current user
- * Query params:
- * - sessionId: get specific session
- * - saved: if true, get saved inspirations only
  */
 export async function GET(request: NextRequest) {
   try {
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-
-    if (!user) {
+    const userId = await getUserIdFromRequest(request);
+    if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    const supabase = await createClient();
     const { searchParams } = new URL(request.url);
     const sessionId = searchParams.get("sessionId");
     const saved = searchParams.get("saved") === "true";
@@ -29,7 +35,7 @@ export async function GET(request: NextRequest) {
       const { data: savedInspirations, error } = await supabase
         .from("saved_inspirations")
         .select("*")
-        .eq("user_id", user.id)
+        .eq("user_id", userId)
         .order("created_at", { ascending: false });
 
       if (error) {
@@ -49,7 +55,7 @@ export async function GET(request: NextRequest) {
         .from("inspiration_sessions")
         .select("*")
         .eq("id", sessionId)
-        .eq("user_id", user.id)
+        .eq("user_id", userId)
         .single();
 
       if (error || !session) {
@@ -78,7 +84,7 @@ export async function GET(request: NextRequest) {
     const { data: sessions, error } = await supabase
       .from("inspiration_sessions")
       .select("*")
-      .eq("user_id", user.id)
+      .eq("user_id", userId)
       .order("created_at", { ascending: false })
       .limit(1);
 
@@ -118,21 +124,15 @@ export async function GET(request: NextRequest) {
 /**
  * POST /api/inspiration
  * Generate new inspiration cards or shuffle existing ones
- * Body:
- * - regenerate: boolean - generate new cards
- * - sessionId: string - existing session ID
- * - shuffle: boolean - show next 4 cards from existing batch
- * - saveInspiration: InspirationCard - save an inspiration to user's collection
  */
 export async function POST(request: NextRequest) {
   try {
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-
-    if (!user) {
+    const userId = await getUserIdFromRequest(request);
+    if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    const supabase = await createClient();
     const body = await request.json();
     const { regenerate, sessionId, shuffle, saveInspiration } = body;
 
@@ -141,7 +141,7 @@ export async function POST(request: NextRequest) {
       const { data, error } = await supabase
         .from("saved_inspirations")
         .insert({
-          user_id: user.id,
+          user_id: userId,
           title: saveInspiration.title,
           summary: saveInspiration.summary,
           category: saveInspiration.category,
@@ -168,7 +168,7 @@ export async function POST(request: NextRequest) {
         .from("inspiration_sessions")
         .select("*")
         .eq("id", sessionId)
-        .eq("user_id", user.id)
+        .eq("user_id", userId)
         .single();
 
       if (error || !session) {
@@ -205,7 +205,7 @@ export async function POST(request: NextRequest) {
     const { data: profile, error: profileError } = await supabase
       .from("profiles")
       .select("*")
-      .eq("id", user.id)
+      .eq("id", userId)
       .single();
 
     if (profileError || !profile) {
@@ -216,7 +216,7 @@ export async function POST(request: NextRequest) {
     }
 
     const userProfile: UserProfile = {
-      name: profile.name || user.email?.split("@")[0] || "User",
+      name: profile.name || profile.email?.split("@")[0] || "User",
       interests: profile.interests || [],
       professionalBackground: profile.professional_background,
       organization: profile.organization,
@@ -267,7 +267,7 @@ export async function POST(request: NextRequest) {
     const { data: newSession, error: sessionError } = await supabase
       .from("inspiration_sessions")
       .insert({
-        user_id: user.id,
+        user_id: userId,
         cards: inspirationCards,
         current_index: 0,
       })
@@ -304,18 +304,15 @@ export async function POST(request: NextRequest) {
 /**
  * DELETE /api/inspiration
  * Remove a saved inspiration
- * Query params:
- * - id: inspiration ID to delete
  */
 export async function DELETE(request: NextRequest) {
   try {
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-
-    if (!user) {
+    const userId = await getUserIdFromRequest(request);
+    if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    const supabase = await createClient();
     const { searchParams } = new URL(request.url);
     const id = searchParams.get("id");
 
@@ -327,7 +324,7 @@ export async function DELETE(request: NextRequest) {
       .from("saved_inspirations")
       .delete()
       .eq("id", id)
-      .eq("user_id", user.id);
+      .eq("user_id", userId);
 
     if (error) {
       console.error("Error deleting inspiration:", error);
