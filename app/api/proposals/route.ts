@@ -90,15 +90,30 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Map the generated proposal content to database columns
+    const proposalData: Record<string, unknown> = {
+      user_id: userId,
+      idea_id: ideaId || null,
+      title,
+      status: status || "draft",
+    };
+
+    // If content (generated proposal) is provided, map fields to columns
+    if (content) {
+      proposalData.vision_statement = content.visionStatement || null;
+      proposalData.goals = content.goals || [];
+      proposalData.cultural_impact = content.culturalImpact || null;
+      proposalData.timeline = content.timeline || null;
+      proposalData.budget = content.budget || null;
+      proposalData.collaborators_needed = content.collaboratorsNeeded || [];
+      proposalData.resources = content.resources || [];
+      proposalData.challenges_and_mitigation = content.challengesAndMitigation || [];
+      proposalData.next_steps = content.nextSteps || [];
+    }
+
     const { data: newProposal, error } = await supabase
       .from("proposals")
-      .insert({
-        user_id: userId,
-        idea_id: ideaId || null,
-        title,
-        status: status || "draft",
-        content: content || null,
-      })
+      .insert(proposalData)
       .select()
       .single();
 
