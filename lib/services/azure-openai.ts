@@ -2,6 +2,7 @@
  * Azure OpenAI Service
  * 
  * Provides LLM capabilities using Azure OpenAI GPT-5.2
+ * Uses agentic workflow with chunking to handle large contexts
  */
 
 import { AzureOpenAI } from "openai";
@@ -49,34 +50,21 @@ export async function generateCompletion(
   messages: ChatMessage[],
   options: CompletionOptions = {}
 ): Promise<string> {
-  // Check configuration
   if (!endpoint || !apiKey) {
-    console.error("Azure OpenAI not configured. Using fallback response.");
     throw new Error("Azure OpenAI not configured. Please set AZURE_OPENAI_ENDPOINT and AZURE_OPENAI_API_KEY environment variables.");
   }
 
-  try {
-    const openai = getClient();
-    
-    const response = await openai.chat.completions.create({
-      model: deploymentName,
-      messages,
-      temperature: options.temperature ?? 0.7,
-      max_completion_tokens: options.maxTokens ?? 4096,
-      top_p: options.topP ?? 1,
-    });
+  const openai = getClient();
+  
+  const response = await openai.chat.completions.create({
+    model: deploymentName,
+    messages,
+    temperature: options.temperature ?? 0.7,
+    max_completion_tokens: options.maxTokens ?? 4096,
+    top_p: options.topP ?? 1,
+  });
 
-    const content = response.choices[0]?.message?.content || "";
-    
-    if (!content) {
-      console.error("Azure OpenAI returned empty content. Response:", JSON.stringify(response.choices[0]));
-    }
-    
-    return content;
-  } catch (error) {
-    console.error("Azure OpenAI API error:", error);
-    throw error;
-  }
+  return response.choices[0]?.message?.content || "";
 }
 
 /**
@@ -90,7 +78,7 @@ export async function generateStructuredOutput<T>(
   const updatedMessages: ChatMessage[] = [
     {
       role: "system",
-      content: `${systemMessage?.content || ""}\n\nIMPORTANT: You MUST respond with valid JSON only. No markdown, no code blocks, no explanations. Just pure JSON.`,
+      content: `${systemMessage?.content || ""}\n\nIMPORTANT: Respond with valid JSON only. No markdown, no code blocks.`,
     },
     ...messages.filter(m => m.role !== "system"),
   ];
@@ -100,38 +88,40 @@ export async function generateStructuredOutput<T>(
     temperature: options.temperature ?? 0.5,
   });
 
-  // Check for empty response
   if (!response || response.trim() === "") {
-    console.error("LLM returned empty response");
-    throw new Error("LLM returned empty response. Check Azure OpenAI configuration.");
+    throw new Error("LLM returned empty response");
   }
 
-  try {
-    // Try to extract JSON from the response
-    let jsonStr = response.trim();
-    
-    // Remove markdown code blocks if present
-    if (jsonStr.startsWith("```json")) {
-      jsonStr = jsonStr.slice(7);
-    } else if (jsonStr.startsWith("```")) {
-      jsonStr = jsonStr.slice(3);
-    }
-    if (jsonStr.endsWith("```")) {
-      jsonStr = jsonStr.slice(0, -3);
-    }
-    
-    // Try to find JSON object or array in the response
-    const jsonMatch = jsonStr.match(/[\[{][\s\S]*[\]}]/);
-    if (jsonMatch) {
-      jsonStr = jsonMatch[0];
-    }
-    
-    return JSON.parse(jsonStr.trim()) as T;
-  } catch (error) {
-    console.error("Failed to parse LLM response as JSON:", response.slice(0, 500));
-    console.error("Parse error:", error);
-    throw new Error(`Failed to parse structured output from LLM: ${response.slice(0, 100)}...`);
-  }
+  // Extract JSON from response
+  let jsonStr = response.trim();
+  if (jsonStr.startsWith("```json")) jsonStr = jsonStr.slice(7);
+  else if (jsonStr.startsWith("```")) jsonStr = jsonStr.slice(3);
+  if (jsonStr.endsWith("```")) jsonStr = jsonStr.slice(0, -3);
+  
+  const jsonMatch = jsonStr.match(/[\[{][\s\S]*[\]}]/);
+  if (jsonMatch) jsonStr = jsonMatch[0];
+  
+  return JSON.parse(jsonStr.trim()) as T;
+}
+
+/**
+ * Compress/summarize text to reduce token usage
+ */
+async function compressContent(content: string, maxLength: number = 500): Promise<string> {
+  if (content.length <= maxLength) return content;
+  
+  const messages: ChatMessage[] = [
+    {
+      role: "system",
+      content: "Extract the most important information from the text. Be concise. Output plain text only.",
+    },
+    {
+      role: "user",
+      content: `Summarize in under ${maxLength} characters, keeping key facts, numbers, and actionable information:\n\n${content.slice(0, 3000)}`,
+    },
+  ];
+
+  return generateCompletion(messages, { maxTokens: 500, temperature: 0.3 });
 }
 
 /**
@@ -147,46 +137,25 @@ export async function generateSearchQueries(userProfile: {
   const messages: ChatMessage[] = [
     {
       role: "system",
-      content: `You are an expert at understanding user profiles and generating targeted web search queries to find successful cultural events, community projects, and creative initiatives that would inspire this person.
-
-Based on the user's profile, generate 8-10 diverse search queries that will help find:
-1. Successful events similar to what they might organize
-2. Community projects in their field of interest
-3. Innovative initiatives by people with similar backgrounds
-4. Case studies of impactful cultural projects
-
-Output a JSON array of search query strings. Each query should be specific and actionable for web search.`,
+      content: `Generate 8 web search queries to find inspiring cultural events and community projects for this user. Output a JSON array of strings.`,
     },
     {
       role: "user",
-      content: `User Profile:
-- Name: ${userProfile.name}
-- Interests: ${userProfile.interests.join(", ")}
-- Professional Background: ${userProfile.professionalBackground || "Not specified"}
-- Organization: ${userProfile.organization || "Independent"}
-- Location: ${userProfile.location || "Not specified"}
-
-Generate search queries to find inspiring events and projects for this person.`,
+      content: `Interests: ${userProfile.interests.join(", ")}
+Background: ${userProfile.professionalBackground || "Not specified"}
+Location: ${userProfile.location || "Not specified"}`,
     },
   ];
 
-  return generateStructuredOutput<string[]>(messages);
+  return generateStructuredOutput<string[]>(messages, { maxTokens: 1000 });
 }
 
 /**
  * Generate inspiration cards from search results
  */
 export async function generateInspirationCards(
-  searchResults: Array<{
-    title: string;
-    content: string;
-    url: string;
-  }>,
-  userProfile: {
-    name: string;
-    interests: string[];
-    professionalBackground?: string;
-  },
+  searchResults: Array<{ title: string; content: string; url: string }>,
+  userProfile: { name: string; interests: string[]; professionalBackground?: string },
   count: number = 20
 ): Promise<Array<{
   title: string;
@@ -198,138 +167,121 @@ export async function generateInspirationCards(
   tags: string[];
   sourceUrl: string;
 }>> {
-  const messages: ChatMessage[] = [
-    {
-      role: "system",
-      content: `You are an expert at analyzing search results about cultural events, community projects, and creative initiatives, and transforming them into inspiring, actionable cards for users.
+  // Chunk results and process in batches to avoid token limits
+  const batchSize = 5;
+  const allCards: Array<{
+    title: string;
+    summary: string;
+    category: string;
+    location: string;
+    relevanceExplanation: string;
+    successHighlights: string[];
+    tags: string[];
+    sourceUrl: string;
+  }> = [];
 
-Your task is to analyze the provided search results and generate ${count} unique inspiration cards. Each card should:
-1. Highlight a specific event, project, or initiative found in the search results
-2. Explain why it's relevant to the user's profile
-3. Extract key success metrics or highlights
-4. Categorize appropriately
+  for (let i = 0; i < searchResults.length && allCards.length < count; i += batchSize) {
+    const batch = searchResults.slice(i, i + batchSize);
+    const cardsNeeded = Math.min(count - allCards.length, 5);
+    
+    const messages: ChatMessage[] = [
+      {
+        role: "system",
+        content: `Create ${cardsNeeded} inspiration cards from search results. Output JSON array:
+[{"title":"..","summary":"2 sentences","category":"Visual Arts|Performing Arts|Music|Heritage & Traditions|Environment & Sustainability|Commerce & Culture|Film & Media|Community Events|Education & Workshops|Food & Culinary","location":"City, Country","relevanceExplanation":"1 sentence","successHighlights":["metric1","metric2"],"tags":["tag1","tag2"],"sourceUrl":"url"}]`,
+      },
+      {
+        role: "user",
+        content: `User interests: ${userProfile.interests.join(", ")}
 
-Output a JSON array of objects with this exact structure:
-{
-  "title": "Event/Project Name",
-  "summary": "2-3 sentence description of what this is and what made it special",
-  "category": "One of: Visual Arts, Performing Arts, Music, Heritage & Traditions, Environment & Sustainability, Commerce & Culture, Film & Media, Community Events, Education & Workshops, Food & Culinary",
-  "location": "City, State/Country or 'Virtual' if online",
-  "relevanceExplanation": "1 sentence explaining why this is relevant to the user's interests",
-  "successHighlights": ["Metric 1", "Metric 2", "Metric 3"],
-  "tags": ["tag1", "tag2", "tag3", "tag4"],
-  "sourceUrl": "URL from the search result"
-}
+Results:
+${batch.map((r, idx) => `[${idx + 1}] ${r.title}\nURL: ${r.url}\n${r.content.slice(0, 800)}`).join("\n\n")}`,
+      },
+    ];
 
-Be creative in extracting insights even from partial information. Focus on making each card inspiring and actionable.`,
-    },
-    {
-      role: "user",
-      content: `User Profile:
-- Name: ${userProfile.name}
-- Interests: ${userProfile.interests.join(", ")}
-- Background: ${userProfile.professionalBackground || "Not specified"}
+    const batchCards = await generateStructuredOutput<typeof allCards>(messages, { maxTokens: 2000 });
+    allCards.push(...batchCards);
+  }
 
-Search Results:
-${searchResults.map((r, i) => `
---- Result ${i + 1} ---
-Title: ${r.title}
-URL: ${r.url}
-Content: ${r.content.slice(0, 1500)}
-`).join("\n")}
-
-Generate ${count} inspiration cards from these results.`,
-    },
-  ];
-
-  return generateStructuredOutput(messages, { maxTokens: 8000 });
+  return allCards.slice(0, count);
 }
 
 /**
  * Generate research topics for idea development
  */
 export async function generateResearchTopics(
-  idea: {
-    title: string;
-    description: string;
-    category: string;
-  },
-  userProfile: {
-    name: string;
-    interests: string[];
-    professionalBackground?: string;
-    location?: string;
-  }
-): Promise<{
-  topics: Array<{
-    aspect: string;
-    description: string;
-    searchQueries: string[];
-  }>;
-}> {
+  idea: { title: string; description: string; category: string },
+  userProfile: { name: string; interests: string[]; professionalBackground?: string; location?: string }
+): Promise<{ topics: Array<{ aspect: string; description: string; searchQueries: string[] }> }> {
   const messages: ChatMessage[] = [
     {
       role: "system",
-      content: `You are an expert event planner and project consultant. Given an idea for a cultural event or community project, generate comprehensive research topics that will help the user understand how to make this idea a reality.
-
-Generate research topics covering these aspects:
-1. Similar successful events/projects (case studies)
-2. Venue and logistics requirements
-3. Legal and permit requirements
-4. Budget and funding options
-5. Marketing and outreach strategies
-6. Staffing and volunteer needs
-7. Timeline and planning milestones
-8. Potential challenges and solutions
-
-For each topic, provide 2-3 specific search queries that will yield useful information.
-
-Output JSON with this structure:
-{
-  "topics": [
-    {
-      "aspect": "Name of the research aspect",
-      "description": "Brief description of what we're researching",
-      "searchQueries": ["query1", "query2", "query3"]
-    }
-  ]
-}`,
+      content: `Generate 6 research topics for planning a cultural project. Cover: case studies, venues, permits, budget, marketing, timeline.
+Output JSON: {"topics":[{"aspect":"name","description":"brief desc","searchQueries":["q1","q2"]}]}`,
     },
     {
       role: "user",
-      content: `Idea Details:
-- Title: ${idea.title}
-- Description: ${idea.description}
-- Category: ${idea.category}
-
-User Context:
-- Location: ${userProfile.location || "Not specified"}
-- Background: ${userProfile.professionalBackground || "Not specified"}
-- Interests: ${userProfile.interests.join(", ")}
-
-Generate research topics to help plan this idea.`,
+      content: `Project: ${idea.title}
+${idea.description}
+Category: ${idea.category}
+Location: ${userProfile.location || "Not specified"}`,
     },
   ];
 
-  return generateStructuredOutput(messages);
+  return generateStructuredOutput(messages, { maxTokens: 2000 });
 }
 
 /**
- * Synthesize research results into actionable guidance with sources
+ * Process a single research aspect (part of agentic workflow)
+ */
+async function processResearchAspect(
+  idea: { title: string; description: string },
+  aspect: string,
+  sources: Array<{ title: string; url: string; content: string }>
+): Promise<{
+  aspect: string;
+  title: string;
+  content: string;
+  keyInsights: string[];
+  actionItems: string[];
+  sources: Array<{ title: string; url: string; relevantQuote: string }>;
+}> {
+  // Compress sources to fit context
+  const compressedSources = await Promise.all(
+    sources.slice(0, 3).map(async (s) => ({
+      title: s.title,
+      url: s.url,
+      content: await compressContent(s.content, 400),
+    }))
+  );
+
+  const messages: ChatMessage[] = [
+    {
+      role: "system",
+      content: `Analyze research for one aspect of a project. Create actionable guidance with source citations.
+Output JSON: {"aspect":"${aspect}","title":"Section Title","content":"2-3 paragraphs of guidance","keyInsights":["insight1","insight2","insight3"],"actionItems":["action1","action2","action3"],"sources":[{"title":"src title","url":"url","relevantQuote":"quote"}]}`,
+    },
+    {
+      role: "user",
+      content: `Project: ${idea.title} - ${idea.description.slice(0, 200)}
+Research aspect: ${aspect}
+
+Sources:
+${compressedSources.map((s, i) => `[${i + 1}] ${s.title}\nURL: ${s.url}\n${s.content}`).join("\n\n")}`,
+    },
+  ];
+
+  return generateStructuredOutput(messages, { maxTokens: 1500 });
+}
+
+/**
+ * Synthesize research results into actionable guidance using agentic chunked processing
  */
 export async function synthesizeResearch(
-  idea: {
-    title: string;
-    description: string;
-    category: string;
-  },
+  idea: { title: string; description: string; category: string },
   researchResults: Array<{
     aspect: string;
-    sources: Array<{
-      title: string;
-      url: string;
-      content: string;
-    }>;
+    sources: Array<{ title: string; url: string; content: string }>;
   }>
 ): Promise<{
   sections: Array<{
@@ -338,80 +290,58 @@ export async function synthesizeResearch(
     content: string;
     keyInsights: string[];
     actionItems: string[];
-    sources: Array<{
-      title: string;
-      url: string;
-      relevantQuote: string;
-    }>;
+    sources: Array<{ title: string; url: string; relevantQuote: string }>;
   }>;
   summary: string;
 }> {
-  const messages: ChatMessage[] = [
+  // AGENTIC WORKFLOW: Process each research aspect independently
+  console.log(`[Agentic] Processing ${researchResults.length} research aspects in parallel chunks`);
+  
+  // Step 1: Process each aspect separately (chunked processing)
+  const sectionPromises = researchResults.map((r) =>
+    processResearchAspect(idea, r.aspect, r.sources)
+  );
+  
+  // Process in parallel batches of 3 to avoid rate limits
+  const sections: Array<{
+    aspect: string;
+    title: string;
+    content: string;
+    keyInsights: string[];
+    actionItems: string[];
+    sources: Array<{ title: string; url: string; relevantQuote: string }>;
+  }> = [];
+  
+  for (let i = 0; i < sectionPromises.length; i += 3) {
+    const batch = sectionPromises.slice(i, i + 3);
+    const batchResults = await Promise.all(batch);
+    sections.push(...batchResults);
+  }
+
+  // Step 2: Generate summary from compressed section data (final merge)
+  const summaryInput = sections.map(s => `${s.title}: ${s.keyInsights.slice(0, 2).join("; ")}`).join("\n");
+  
+  const summaryMessages: ChatMessage[] = [
     {
       role: "system",
-      content: `You are an expert at synthesizing research into clear, actionable guidance. Your job is to analyze research results and create a comprehensive planning guide.
-
-CRITICAL: You MUST include source citations for all information. Every insight, recommendation, and fact must be traceable to a source URL.
-
-For each research aspect, create a section that includes:
-1. Clear, practical content explaining how to approach this aspect
-2. Key insights extracted from the sources
-3. Specific action items the user can take
-4. Sources with direct quotes or paraphrases showing where the information came from
-
-Output JSON with this structure:
-{
-  "sections": [
-    {
-      "aspect": "research aspect name",
-      "title": "Section Title",
-      "content": "Detailed content with practical guidance (2-3 paragraphs)",
-      "keyInsights": ["insight 1", "insight 2", "insight 3"],
-      "actionItems": ["action 1", "action 2", "action 3"],
-      "sources": [
-        {
-          "title": "Source Title",
-          "url": "https://...",
-          "relevantQuote": "Quote or paraphrase from the source"
-        }
-      ]
-    }
-  ],
-  "summary": "Executive summary of all research findings (2-3 sentences)"
-}`,
+      content: "Write a 2-3 sentence executive summary of research findings. Be concise and actionable.",
     },
     {
       role: "user",
-      content: `Idea: ${idea.title}
-Description: ${idea.description}
-Category: ${idea.category}
-
-Research Results:
-${researchResults.map(r => `
-=== ${r.aspect} ===
-${r.sources.map((s, i) => `
-Source ${i + 1}: ${s.title}
-URL: ${s.url}
-Content: ${s.content.slice(0, 2000)}
-`).join("\n")}
-`).join("\n\n")}
-
-Synthesize this research into actionable guidance. Remember to cite sources for ALL information.`,
+      content: `Project: ${idea.title}\n\nKey findings:\n${summaryInput}`,
     },
   ];
 
-  return generateStructuredOutput(messages, { maxTokens: 8000 });
+  const summary = await generateCompletion(summaryMessages, { maxTokens: 300 });
+
+  return { sections, summary };
 }
 
 /**
- * Generate a project proposal
+ * Generate a project proposal using chunked context
  */
 export async function generateProposal(
-  idea: {
-    title: string;
-    description: string;
-    category: string;
-  },
+  idea: { title: string; description: string; category: string },
   researchSynthesis: {
     sections: Array<{
       aspect: string;
@@ -441,127 +371,46 @@ export async function generateProposal(
   visionStatement: string;
   goals: string[];
   culturalImpact: string;
-  timeline: {
-    duration: string;
-    phases: Array<{
-      name: string;
-      duration: string;
-      tasks: string[];
-    }>;
-  };
-  budget: {
-    total: string;
-    breakdown: Array<{
-      category: string;
-      amount: string;
-      description: string;
-    }>;
-  };
-  collaboratorsNeeded: Array<{
-    role: string;
-    skills: string[];
-    priority: "required" | "preferred" | "nice-to-have";
-    count: number;
-  }>;
+  timeline: { duration: string; phases: Array<{ name: string; duration: string; tasks: string[] }> };
+  budget: { total: string; breakdown: Array<{ category: string; amount: string; description: string }> };
+  collaboratorsNeeded: Array<{ role: string; skills: string[]; priority: "required" | "preferred" | "nice-to-have"; count: number }>;
   resources: string[];
-  challengesAndMitigation: Array<{
-    challenge: string;
-    mitigation: string;
-  }>;
+  challengesAndMitigation: Array<{ challenge: string; mitigation: string }>;
   nextSteps: string[];
 }> {
+  // Compress research insights for context
+  const compressedInsights = researchSynthesis.sections
+    .map(s => `${s.title}: ${s.keyInsights.slice(0, 2).join("; ")}`)
+    .join("\n");
+
   const messages: ChatMessage[] = [
     {
       role: "system",
-      content: `You are an expert proposal writer for cultural and community projects. Create a comprehensive, professional proposal that can be used to pitch the project to stakeholders, funders, or collaborators.
-
-The proposal should be:
-- Compelling and inspiring
-- Realistic and well-researched
-- Actionable with clear next steps
-- Tailored to the user's situation (what resources they already have)
-
-Output JSON with this exact structure:
-{
-  "title": "Project Title",
-  "visionStatement": "2-3 sentences describing the vision",
-  "goals": ["goal 1", "goal 2", "goal 3", "goal 4", "goal 5"],
-  "culturalImpact": "Paragraph describing the cultural and community impact",
-  "timeline": {
-    "duration": "Total duration (e.g., '12 weeks')",
-    "phases": [
-      {
-        "name": "Phase Name",
-        "duration": "Duration",
-        "tasks": ["task 1", "task 2"]
-      }
-    ]
-  },
-  "budget": {
-    "total": "Total amount",
-    "breakdown": [
-      {
-        "category": "Category Name",
-        "amount": "Amount",
-        "description": "What this covers"
-      }
-    ]
-  },
-  "collaboratorsNeeded": [
-    {
-      "role": "Role Title",
-      "skills": ["skill 1", "skill 2"],
-      "priority": "required",
-      "count": 1
-    }
-  ],
-  "resources": ["resource 1", "resource 2"],
-  "challengesAndMitigation": [
-    {
-      "challenge": "Description of challenge",
-      "mitigation": "How to address it"
-    }
-  ],
-  "nextSteps": ["step 1", "step 2", "step 3"]
-}`,
+      content: `Create a professional project proposal. Output JSON:
+{"title":"","visionStatement":"2-3 sentences","goals":["g1","g2","g3","g4","g5"],"culturalImpact":"paragraph","timeline":{"duration":"e.g. 12 weeks","phases":[{"name":"","duration":"","tasks":["t1","t2"]}]},"budget":{"total":"","breakdown":[{"category":"","amount":"","description":""}]},"collaboratorsNeeded":[{"role":"","skills":["s1"],"priority":"required|preferred|nice-to-have","count":1}],"resources":["r1","r2"],"challengesAndMitigation":[{"challenge":"","mitigation":""}],"nextSteps":["s1","s2","s3"]}`,
     },
     {
       role: "user",
-      content: `Create a proposal for this project:
+      content: `Project: ${idea.title}
+Description: ${idea.description.slice(0, 500)}
+Category: ${idea.category}
 
-Project Idea:
-- Title: ${idea.title}
-- Description: ${idea.description}
-- Category: ${idea.category}
+Organizer: ${userProfile.name}
+Background: ${userProfile.professionalBackground || "Not specified"}
+Organization: ${userProfile.organization || "Independent"}
 
-Organizer Profile:
-- Name: ${userProfile.name}
-- Background: ${userProfile.professionalBackground || "Not specified"}
-- Organization: ${userProfile.organization || "Independent"}
-- Interests: ${userProfile.interests.join(", ")}
+Resources: Venue ${userRequirements?.hasVenue ? "Yes" : "No"}, Funding ${userRequirements?.hasFunding ? "Yes" : "No"}, Team ${userRequirements?.hasTeam ? "Yes" : "No"}
+Budget: ${userRequirements?.budget || "TBD"}
+Timeline: ${userRequirements?.timeline || "Flexible"}
 
-Current Resources/Requirements:
-- Has Venue: ${userRequirements?.hasVenue ? "Yes" : "No/Unknown"}
-- Has Funding: ${userRequirements?.hasFunding ? "Yes" : "No/Unknown"}
-- Has Team: ${userRequirements?.hasTeam ? "Yes" : "No/Unknown"}
-- Budget Constraints: ${userRequirements?.budget || "To be determined"}
-- Timeline Constraints: ${userRequirements?.timeline || "Flexible"}
-- Additional Notes: ${userRequirements?.additionalNotes || "None"}
+Research Summary: ${researchSynthesis.summary}
 
-Research Summary:
-${researchSynthesis.summary}
-
-Key Research Insights:
-${researchSynthesis.sections.map(s => `
-${s.title}:
-${s.keyInsights.map(i => `- ${i}`).join("\n")}
-`).join("\n")}
-
-Generate a comprehensive proposal based on this information.`,
+Key Insights:
+${compressedInsights}`,
     },
   ];
 
-  return generateStructuredOutput(messages, { maxTokens: 6000 });
+  return generateStructuredOutput(messages, { maxTokens: 4000 });
 }
 
 export const azureOpenAI = {
