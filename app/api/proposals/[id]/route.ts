@@ -77,21 +77,36 @@ export async function PATCH(
 
     const { id } = await params;
     const body = await request.json();
+    
+    console.log("[v0] PATCH proposal request:", { id, body });
+
+    // Only allow updating specific fields to prevent invalid column errors
+    const allowedFields = ["status", "title", "vision_statement", "goals", "cultural_impact", 
+      "timeline", "budget", "collaborators_needed", "resources", "challenges_and_mitigation", "next_steps"];
+    
+    const updateData: Record<string, unknown> = {
+      updated_at: new Date().toISOString(),
+    };
+    
+    for (const field of allowedFields) {
+      if (body[field] !== undefined) {
+        updateData[field] = body[field];
+      }
+    }
+    
+    console.log("[v0] Update data:", updateData);
 
     const { data: updatedProposal, error } = await supabase
       .from("proposals")
-      .update({
-        ...body,
-        updated_at: new Date().toISOString(),
-      })
+      .update(updateData)
       .eq("id", id)
       .eq("user_id", userId)
       .select()
       .single();
 
     if (error) {
-      console.error("Error updating proposal:", error);
-      return NextResponse.json({ error: "Failed to update proposal" }, { status: 500 });
+      console.error("[v0] Error updating proposal:", error);
+      return NextResponse.json({ error: "Failed to update proposal", details: error.message }, { status: 500 });
     }
 
     return NextResponse.json({

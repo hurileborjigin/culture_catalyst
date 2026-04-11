@@ -176,7 +176,7 @@ export default function ProposalsPage() {
             <TabsTrigger value="published">
               Published ({publishedProposals.length})
             </TabsTrigger>
-          </TabsList>
+          </Tabs>
 
           <TabsContent value="drafts" className="space-y-6">
             {draftProposals.length === 0 ? (
