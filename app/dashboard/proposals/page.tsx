@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,6 +26,7 @@ import {
   Trash2,
   Copy,
   Archive,
+  Loader2,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -35,42 +36,18 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
-// Mock data - in production, this would come from your API
-const mockProposals = [
-  {
-    id: "1",
-    title: "Neighborhood Art Walk",
-    visionStatement:
-      "Creating a vibrant monthly celebration of local art that transforms our neighborhood into an open-air gallery.",
-    status: "draft" as const,
-    category: "Visual Arts",
-    updatedAt: "2 hours ago",
-    budget: 5500,
-    collaboratorsNeeded: 4,
-  },
-  {
-    id: "2",
-    title: "Youth Music Mentorship Program",
-    visionStatement:
-      "Empowering young musicians through one-on-one mentorship with local professionals.",
-    status: "published" as const,
-    category: "Performing Arts",
-    updatedAt: "1 day ago",
-    budget: 8200,
-    collaboratorsNeeded: 6,
-  },
-  {
-    id: "3",
-    title: "Cultural Heritage Day",
-    visionStatement:
-      "A day-long celebration honoring the diverse cultural traditions of our community.",
-    status: "draft" as const,
-    category: "Heritage & Traditions",
-    updatedAt: "3 days ago",
-    budget: 12000,
-    collaboratorsNeeded: 10,
-  },
-];
+interface Proposal {
+  id: string;
+  title: string;
+  vision_statement: string | null;
+  status: "draft" | "published" | "archived";
+  budget: { total: string } | null;
+  collaborators_needed: Array<{ role: string }> | null;
+  updated_at: string;
+  idea?: {
+    category: string;
+  } | null;
+}
 
 const statusConfig = {
   draft: {
@@ -88,13 +65,33 @@ const statusConfig = {
 };
 
 export default function ProposalsPage() {
-  const [proposals, setProposals] = useState(mockProposals);
+  const [proposals, setProposals] = useState<Proposal[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
+
+  useEffect(() => {
+    const fetchProposals = async () => {
+      setIsLoading(true);
+      try {
+        const response = await fetch("/api/proposals");
+        const data = await response.json();
+        if (data.success) {
+          setProposals(data.proposals);
+        }
+      } catch (error) {
+        console.error("Error fetching proposals:", error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchProposals();
+  }, []);
 
   const filteredProposals = proposals.filter(
     (proposal) =>
       proposal.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      proposal.visionStatement.toLowerCase().includes(searchQuery.toLowerCase())
+      (proposal.vision_statement?.toLowerCase().includes(searchQuery.toLowerCase()) ?? false)
   );
 
   const draftProposals = filteredProposals.filter((p) => p.status === "draft");
@@ -102,8 +99,31 @@ export default function ProposalsPage() {
     (p) => p.status === "published"
   );
 
-  const handleDelete = (id: string) => {
-    setProposals(proposals.filter((p) => p.id !== id));
+  const handleDelete = async (id: string) => {
+    try {
+      const response = await fetch(`/api/proposals/${id}`, {
+        method: "DELETE",
+      });
+      if (response.ok) {
+        setProposals(proposals.filter((p) => p.id !== id));
+      }
+    } catch (error) {
+      console.error("Error deleting proposal:", error);
+    }
+  };
+
+  const formatRelativeTime = (dateString: string) => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+
+    if (diffMins < 60) return `${diffMins} minutes ago`;
+    if (diffHours < 24) return `${diffHours} hours ago`;
+    if (diffDays === 1) return "Yesterday";
+    return `${diffDays} days ago`;
   };
 
   return (
@@ -120,7 +140,7 @@ export default function ProposalsPage() {
           </p>
         </div>
         <Button asChild>
-          <Link href="/dashboard/proposals/new">
+          <Link href="/dashboard/develop">
             <Plus className="mr-2 h-4 w-4" />
             New Proposal
           </Link>
@@ -140,85 +160,98 @@ export default function ProposalsPage() {
         </div>
       </div>
 
-      {/* Tabs */}
-      <Tabs defaultValue="drafts" className="space-y-6">
-        <TabsList>
-          <TabsTrigger value="drafts">
-            Drafts ({draftProposals.length})
-          </TabsTrigger>
-          <TabsTrigger value="published">
-            Published ({publishedProposals.length})
-          </TabsTrigger>
-        </TabsList>
+      {/* Loading State */}
+      {isLoading ? (
+        <Card className="flex items-center justify-center p-12">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <span className="ml-3">Loading proposals...</span>
+        </Card>
+      ) : (
+        /* Tabs */
+        <Tabs defaultValue="drafts" className="space-y-6">
+          <TabsList>
+            <TabsTrigger value="drafts">
+              Drafts ({draftProposals.length})
+            </TabsTrigger>
+            <TabsTrigger value="published">
+              Published ({publishedProposals.length})
+            </TabsTrigger>
+          </Tabs>
 
-        <TabsContent value="drafts" className="space-y-6">
-          {draftProposals.length === 0 ? (
-            <Card className="p-12 text-center">
-              <FileText className="mx-auto h-12 w-12 text-muted-foreground" />
-              <h3 className="mt-4 text-lg font-semibold">No draft proposals</h3>
-              <p className="mt-2 text-muted-foreground">
-                Create a new proposal or generate one from a developed idea
-              </p>
-              <div className="mt-6 flex flex-col items-center gap-2 sm:flex-row sm:justify-center">
-                <Button asChild>
-                  <Link href="/dashboard/proposals/new">
-                    <Plus className="mr-2 h-4 w-4" />
-                    Create Proposal
-                  </Link>
-                </Button>
-                <Button variant="outline" asChild>
-                  <Link href="/dashboard/develop">View Ideas</Link>
-                </Button>
+          <TabsContent value="drafts" className="space-y-6">
+            {draftProposals.length === 0 ? (
+              <Card className="p-12 text-center">
+                <FileText className="mx-auto h-12 w-12 text-muted-foreground" />
+                <h3 className="mt-4 text-lg font-semibold">No draft proposals</h3>
+                <p className="mt-2 text-muted-foreground">
+                  Create a new proposal or generate one from a developed idea
+                </p>
+                <div className="mt-6 flex flex-col items-center gap-2 sm:flex-row sm:justify-center">
+                  <Button asChild>
+                    <Link href="/dashboard/develop">
+                      <Plus className="mr-2 h-4 w-4" />
+                      Create from Idea
+                    </Link>
+                  </Button>
+                  <Button variant="outline" asChild>
+                    <Link href="/dashboard/develop">View Ideas</Link>
+                  </Button>
+                </div>
+              </Card>
+            ) : (
+              <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+                {draftProposals.map((proposal) => (
+                  <ProposalCard
+                    key={proposal.id}
+                    proposal={proposal}
+                    onDelete={handleDelete}
+                    formatTime={formatRelativeTime}
+                  />
+                ))}
               </div>
-            </Card>
-          ) : (
-            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-              {draftProposals.map((proposal) => (
-                <ProposalCard
-                  key={proposal.id}
-                  proposal={proposal}
-                  onDelete={handleDelete}
-                />
-              ))}
-            </div>
-          )}
-        </TabsContent>
+            )}
+          </TabsContent>
 
-        <TabsContent value="published" className="space-y-6">
-          {publishedProposals.length === 0 ? (
-            <Card className="p-12 text-center">
-              <Send className="mx-auto h-12 w-12 text-muted-foreground" />
-              <h3 className="mt-4 text-lg font-semibold">
-                No published proposals
-              </h3>
-              <p className="mt-2 text-muted-foreground">
-                Publish a draft proposal to share it with the community
-              </p>
-            </Card>
-          ) : (
-            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-              {publishedProposals.map((proposal) => (
-                <ProposalCard
-                  key={proposal.id}
-                  proposal={proposal}
-                  onDelete={handleDelete}
-                />
-              ))}
-            </div>
-          )}
-        </TabsContent>
-      </Tabs>
+          <TabsContent value="published" className="space-y-6">
+            {publishedProposals.length === 0 ? (
+              <Card className="p-12 text-center">
+                <Send className="mx-auto h-12 w-12 text-muted-foreground" />
+                <h3 className="mt-4 text-lg font-semibold">
+                  No published proposals
+                </h3>
+                <p className="mt-2 text-muted-foreground">
+                  Publish a draft proposal to share it with the community
+                </p>
+              </Card>
+            ) : (
+              <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+                {publishedProposals.map((proposal) => (
+                  <ProposalCard
+                    key={proposal.id}
+                    proposal={proposal}
+                    onDelete={handleDelete}
+                    formatTime={formatRelativeTime}
+                  />
+                ))}
+              </div>
+            )}
+          </TabsContent>
+        </Tabs>
+      )}
     </div>
   );
 }
 
 interface ProposalCardProps {
-  proposal: (typeof mockProposals)[0];
+  proposal: Proposal;
   onDelete: (id: string) => void;
+  formatTime: (date: string) => string;
 }
 
-function ProposalCard({ proposal, onDelete }: ProposalCardProps) {
+function ProposalCard({ proposal, onDelete, formatTime }: ProposalCardProps) {
   const status = statusConfig[proposal.status];
+  const budget = proposal.budget?.total ? parseFloat(proposal.budget.total.replace(/[^0-9.]/g, "")) : 0;
+  const collaboratorsCount = proposal.collaborators_needed?.length || 0;
 
   return (
     <Card className="flex flex-col">
@@ -273,30 +306,32 @@ function ProposalCard({ proposal, onDelete }: ProposalCardProps) {
           {proposal.title}
         </CardTitle>
         <CardDescription className="line-clamp-2">
-          {proposal.visionStatement}
+          {proposal.vision_statement || "No vision statement"}
         </CardDescription>
       </CardHeader>
       <CardContent className="flex-1 space-y-3">
-        <Badge variant="secondary" className="text-xs">
-          {proposal.category}
-        </Badge>
+        {proposal.idea?.category && (
+          <Badge variant="secondary" className="text-xs">
+            {proposal.idea.category}
+          </Badge>
+        )}
 
         <div className="flex items-center justify-between text-sm">
           <span className="text-muted-foreground">Budget</span>
           <span className="font-medium">
-            ${proposal.budget.toLocaleString()}
+            {budget > 0 ? `$${budget.toLocaleString()}` : "TBD"}
           </span>
         </div>
 
         <div className="flex items-center justify-between text-sm">
           <span className="text-muted-foreground">Collaborators needed</span>
-          <span className="font-medium">{proposal.collaboratorsNeeded}</span>
+          <span className="font-medium">{collaboratorsCount}</span>
         </div>
       </CardContent>
       <CardFooter className="flex items-center justify-between border-t pt-4">
         <div className="flex items-center gap-1 text-xs text-muted-foreground">
           <Clock className="h-3 w-3" />
-          Updated {proposal.updatedAt}
+          Updated {formatTime(proposal.updated_at)}
         </div>
         <Button size="sm" variant="outline" asChild>
           <Link href={`/dashboard/proposals/${proposal.id}`}>

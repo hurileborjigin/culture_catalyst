@@ -1,3 +1,6 @@
+"use client";
+
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import {
@@ -16,42 +19,151 @@ import {
   ArrowRight,
   Clock,
   TrendingUp,
+  Loader2,
 } from "lucide-react";
+import { useAuth } from "@/contexts/auth-context";
 
-// Mock data - in production, this would come from your API
-const recentActivity = [
-  {
-    id: "1",
-    type: "inspiration",
-    title: "Viewed: Community Garden Festival",
-    time: "2 hours ago",
-  },
-  {
-    id: "2",
-    type: "idea",
-    title: "Updated: Neighborhood Art Walk",
-    time: "Yesterday",
-  },
-  {
-    id: "3",
-    type: "proposal",
-    title: "Created: Cultural Heritage Day",
-    time: "3 days ago",
-  },
-];
+interface Idea {
+  id: string;
+  title: string;
+  description: string;
+  status: string;
+  updated_at: string;
+  idea_research?: Array<{ id: string }>;
+}
 
-const quickStats = [
-  { label: "Ideas in Progress", value: 3, icon: Lightbulb },
-  { label: "Draft Proposals", value: 2, icon: FileText },
-  { label: "Saved Inspirations", value: 12, icon: Sparkles },
-];
+interface Proposal {
+  id: string;
+  title: string;
+  status: string;
+  updated_at: string;
+}
+
+interface Stats {
+  ideasCount: number;
+  proposalsCount: number;
+  inspirationsCount: number;
+}
+
+interface ActivityItem {
+  id: string;
+  type: "inspiration" | "idea" | "proposal";
+  title: string;
+  time: string;
+}
 
 export default function DashboardPage() {
+  const { user } = useAuth();
+  const [isLoading, setIsLoading] = useState(true);
+  const [stats, setStats] = useState<Stats>({ ideasCount: 0, proposalsCount: 0, inspirationsCount: 0 });
+  const [recentActivity, setRecentActivity] = useState<ActivityItem[]>([]);
+  const [currentProject, setCurrentProject] = useState<Idea | null>(null);
+
+  useEffect(() => {
+    const fetchDashboardData = async () => {
+      setIsLoading(true);
+      try {
+        // Fetch ideas
+        const ideasRes = await fetch("/api/ideas");
+        const ideasData = await ideasRes.json();
+        const ideas: Idea[] = ideasData.success ? ideasData.ideas : [];
+
+        // Fetch proposals
+        const proposalsRes = await fetch("/api/proposals");
+        const proposalsData = await proposalsRes.json();
+        const proposals: Proposal[] = proposalsData.success ? proposalsData.proposals : [];
+
+        // Calculate stats
+        setStats({
+          ideasCount: ideas.filter((i) => i.status !== "completed").length,
+          proposalsCount: proposals.filter((p) => p.status === "draft").length,
+          inspirationsCount: 0, // TODO: Add saved inspirations API
+        });
+
+        // Build recent activity from ideas and proposals
+        const activity: ActivityItem[] = [];
+        
+        ideas.slice(0, 3).forEach((idea) => {
+          activity.push({
+            id: idea.id,
+            type: "idea",
+            title: idea.title,
+            time: formatRelativeTime(idea.updated_at),
+          });
+        });
+
+        proposals.slice(0, 3).forEach((proposal) => {
+          activity.push({
+            id: proposal.id,
+            type: "proposal",
+            title: proposal.title,
+            time: formatRelativeTime(proposal.updated_at),
+          });
+        });
+
+        // Sort by time and take top 5
+        setRecentActivity(activity.slice(0, 5));
+
+        // Set current project as most recent in-development idea
+        const inDevelopment = ideas.find((i) => i.status === "in-development");
+        if (inDevelopment) {
+          setCurrentProject(inDevelopment);
+        } else if (ideas.length > 0) {
+          setCurrentProject(ideas[0]);
+        }
+      } catch (error) {
+        console.error("Error fetching dashboard data:", error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchDashboardData();
+  }, []);
+
+  const formatRelativeTime = (dateString: string) => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+
+    if (diffMins < 60) return `${diffMins} minutes ago`;
+    if (diffHours < 24) return `${diffHours} hours ago`;
+    if (diffDays === 1) return "Yesterday";
+    return `${diffDays} days ago`;
+  };
+
+  const calculateProgress = (idea: Idea) => {
+    // Base progress on status and research
+    let progress = 0;
+    if (idea.status === "draft") progress = 25;
+    else if (idea.status === "in-development") progress = 50;
+    else if (idea.status === "ready") progress = 75;
+    else if (idea.status === "completed") progress = 100;
+    
+    // Add points for having research
+    if (idea.idea_research && idea.idea_research.length > 0) {
+      progress = Math.min(progress + 25, 100);
+    }
+    
+    return progress;
+  };
+
+  const quickStats = [
+    { label: "Ideas in Progress", value: stats.ideasCount, icon: Lightbulb },
+    { label: "Draft Proposals", value: stats.proposalsCount, icon: FileText },
+    { label: "Saved Inspirations", value: stats.inspirationsCount, icon: Sparkles },
+  ];
+
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
       {/* Welcome Section */}
       <div className="mb-8">
-        <h1 className="font-serif text-3xl font-bold">Welcome back, Alex</h1>
+        <h1 className="font-serif text-3xl font-bold">
+          Welcome back{user?.name ? `, ${user.name.split(" ")[0]}` : ""}
+        </h1>
         <p className="mt-1 text-muted-foreground">
           Continue building your cultural projects or discover new inspiration.
         </p>
@@ -66,7 +178,11 @@ export default function DashboardPage() {
                 <stat.icon className="h-6 w-6 text-primary" />
               </div>
               <div>
-                <p className="text-2xl font-bold">{stat.value}</p>
+                {isLoading ? (
+                  <Loader2 className="h-6 w-6 animate-spin" />
+                ) : (
+                  <p className="text-2xl font-bold">{stat.value}</p>
+                )}
                 <p className="text-sm text-muted-foreground">{stat.label}</p>
               </div>
             </CardContent>
@@ -154,25 +270,47 @@ export default function DashboardPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div>
-              <div className="flex items-center justify-between">
-                <h3 className="font-medium">Neighborhood Art Walk</h3>
-                <Badge variant="secondary">In Development</Badge>
+            {isLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-6 w-6 animate-spin text-primary" />
               </div>
-              <p className="mt-1 text-sm text-muted-foreground">
-                A community art exhibition featuring local artists
-              </p>
-            </div>
-            <div className="space-y-2">
-              <div className="flex items-center justify-between text-sm">
-                <span>Progress</span>
-                <span className="text-muted-foreground">65%</span>
+            ) : currentProject ? (
+              <>
+                <div>
+                  <div className="flex items-center justify-between">
+                    <h3 className="font-medium">{currentProject.title}</h3>
+                    <Badge variant="secondary">
+                      {currentProject.status.replace("-", " ")}
+                    </Badge>
+                  </div>
+                  <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">
+                    {currentProject.description}
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-sm">
+                    <span>Progress</span>
+                    <span className="text-muted-foreground">
+                      {calculateProgress(currentProject)}%
+                    </span>
+                  </div>
+                  <Progress value={calculateProgress(currentProject)} className="h-2" />
+                </div>
+                <Button variant="outline" asChild className="w-full">
+                  <Link href={`/dashboard/develop/${currentProject.id}`}>
+                    Continue Working
+                  </Link>
+                </Button>
+              </>
+            ) : (
+              <div className="py-8 text-center">
+                <Lightbulb className="mx-auto h-12 w-12 text-muted-foreground" />
+                <p className="mt-4 text-muted-foreground">No projects yet</p>
+                <Button asChild className="mt-4">
+                  <Link href="/dashboard/develop/new">Start a New Idea</Link>
+                </Button>
               </div>
-              <Progress value={65} className="h-2" />
-            </div>
-            <Button variant="outline" asChild className="w-full">
-              <Link href="/dashboard/develop/1">Continue Working</Link>
-            </Button>
+            )}
           </CardContent>
         </Card>
 
@@ -185,32 +323,43 @@ export default function DashboardPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="space-y-4">
-              {recentActivity.map((activity) => (
-                <div
-                  key={activity.id}
-                  className="flex items-start gap-3 border-b pb-3 last:border-0 last:pb-0"
-                >
-                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-muted">
-                    {activity.type === "inspiration" && (
-                      <Sparkles className="h-4 w-4 text-muted-foreground" />
-                    )}
-                    {activity.type === "idea" && (
-                      <Lightbulb className="h-4 w-4 text-muted-foreground" />
-                    )}
-                    {activity.type === "proposal" && (
-                      <FileText className="h-4 w-4 text-muted-foreground" />
-                    )}
+            {isLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-6 w-6 animate-spin text-primary" />
+              </div>
+            ) : recentActivity.length > 0 ? (
+              <div className="space-y-4">
+                {recentActivity.map((activity) => (
+                  <div
+                    key={`${activity.type}-${activity.id}`}
+                    className="flex items-start gap-3 border-b pb-3 last:border-0 last:pb-0"
+                  >
+                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-muted">
+                      {activity.type === "inspiration" && (
+                        <Sparkles className="h-4 w-4 text-muted-foreground" />
+                      )}
+                      {activity.type === "idea" && (
+                        <Lightbulb className="h-4 w-4 text-muted-foreground" />
+                      )}
+                      {activity.type === "proposal" && (
+                        <FileText className="h-4 w-4 text-muted-foreground" />
+                      )}
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-sm font-medium">{activity.title}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {activity.time}
+                      </p>
+                    </div>
                   </div>
-                  <div className="flex-1">
-                    <p className="text-sm font-medium">{activity.title}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {activity.time}
-                    </p>
-                  </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            ) : (
+              <div className="py-8 text-center">
+                <Clock className="mx-auto h-12 w-12 text-muted-foreground" />
+                <p className="mt-4 text-muted-foreground">No recent activity</p>
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>

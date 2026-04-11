@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, use } from "react";
+import { useState, useEffect, use } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -11,7 +12,6 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
 import {
   ArrowLeft,
   Edit,
@@ -28,80 +28,31 @@ import {
   AlertTriangle,
   ArrowRight,
   CheckCircle2,
+  AlertCircle,
 } from "lucide-react";
 
-// Mock data - in production, this would come from your API
-const mockProposal = {
-  id: "1",
-  title: "Neighborhood Art Walk",
-  visionStatement:
-    "Creating a vibrant monthly celebration of local art that transforms our neighborhood into an open-air gallery, connecting artists with the community and fostering appreciation for creative expression in everyday spaces.",
-  status: "draft" as const,
-  category: "Visual Arts",
-  goals: [
-    "Showcase work from 15+ local artists",
-    "Attract 500+ visitors per event",
-    "Generate $5,000+ in direct artist sales",
-    "Build lasting partnerships with 10 local businesses",
-    "Create a sustainable monthly event model",
-  ],
-  culturalImpact:
-    "This initiative will democratize access to art by bringing galleries to the streets, support local artists economically, strengthen community bonds through shared cultural experiences, and revitalize underutilized public spaces with creative energy.",
+interface Proposal {
+  id: string;
+  title: string;
+  vision_statement: string | null;
+  status: "draft" | "published" | "archived";
+  goals: string[] | null;
+  cultural_impact: string | null;
   timeline: {
-    startDate: "April 2026",
-    endDate: "May 2026",
-    milestones: [
-      { date: "Week 1-2", milestone: "Secure venues and artist commitments" },
-      { date: "Week 3-4", milestone: "Finalize route and logistics" },
-      { date: "Week 5-6", milestone: "Marketing campaign launch" },
-      { date: "Week 7", milestone: "Final preparations and rehearsal" },
-      { date: "Week 8", milestone: "Event day" },
-    ],
-  },
+    duration?: string;
+    phases?: Array<{ name: string; duration: string; tasks: string[] }>;
+  } | null;
   budget: {
-    total: 5500,
-    breakdown: [
-      { category: "Venue", amount: 1200 },
-      { category: "Marketing", amount: 800 },
-      { category: "Equipment", amount: 1500 },
-      { category: "Staffing", amount: 1200 },
-      { category: "Refreshments", amount: 500 },
-      { category: "Contingency", amount: 300 },
-    ],
-  },
-  resources: [
-    "5-8 storefronts for art displays",
-    "20 display easels",
-    "Portable lighting kits",
-    "Sound system for announcements",
-    "Promotional materials (flyers, banners)",
-    "Refreshment supplies",
-  ],
-  collaboratorsNeeded: [
-    { skill: "Event Coordinator", priority: "required" as const },
-    { skill: "Route Guides", priority: "required" as const },
-    { skill: "Setup Crew", priority: "required" as const },
-    { skill: "Security Personnel", priority: "required" as const },
-    { skill: "Photographer", priority: "preferred" as const },
-    { skill: "Local business partners", priority: "preferred" as const },
-  ],
-  challengesAndRisks: [
-    "Weather dependency for outdoor portions",
-    "Coordinating multiple venue schedules",
-    "Ensuring adequate foot traffic",
-    "Managing artist expectations for sales",
-    "Maintaining quality as event scales",
-  ],
-  nextSteps: [
-    "Confirm interest from 3-5 initial artists",
-    "Scout and secure primary venue locations",
-    "Draft partnership agreements for businesses",
-    "Create event branding and marketing materials",
-    "Set up volunteer recruitment campaign",
-  ],
-  createdAt: "2 days ago",
-  updatedAt: "2 hours ago",
-};
+    total: string;
+    breakdown?: Array<{ category: string; amount: string; description?: string }>;
+  } | null;
+  resources: string[] | null;
+  collaborators_needed: Array<{ role: string; skills?: string[]; priority?: string; count?: number }> | null;
+  challenges_and_mitigation: Array<{ challenge: string; mitigation: string }> | null;
+  next_steps: string[] | null;
+  created_at: string;
+  updated_at: string;
+}
 
 export default function ProposalDetailPage({
   params,
@@ -109,21 +60,118 @@ export default function ProposalDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = use(params);
+  const router = useRouter();
   const [isPublishing, setIsPublishing] = useState(false);
-  const [proposal] = useState(mockProposal);
+  const [isLoading, setIsLoading] = useState(true);
+  const [proposal, setProposal] = useState<Proposal | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const fetchProposal = async () => {
+      setIsLoading(true);
+      try {
+        const response = await fetch(`/api/proposals/${id}`);
+        const data = await response.json();
+        if (data.success && data.proposal) {
+          setProposal(data.proposal);
+        } else {
+          setError("Proposal not found");
+        }
+      } catch (err) {
+        console.error("Error fetching proposal:", err);
+        setError("Failed to load proposal");
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchProposal();
+  }, [id]);
 
   const handlePublish = async () => {
+    if (!proposal) return;
     setIsPublishing(true);
 
-    // TODO: Replace with actual API call
-    // const response = await fetch(`/api/proposals/${id}/publish`, {
-    //   method: 'POST',
-    // });
+    try {
+      const response = await fetch(`/api/proposals/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "published" }),
+      });
 
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-    setIsPublishing(false);
-    // Show success message or redirect
+      if (response.ok) {
+        setProposal({ ...proposal, status: "published" });
+      }
+    } catch (error) {
+      console.error("Error publishing proposal:", error);
+    } finally {
+      setIsPublishing(false);
+    }
   };
+
+  const formatRelativeTime = (dateString: string) => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+
+    if (diffMins < 60) return `${diffMins} minutes ago`;
+    if (diffHours < 24) return `${diffHours} hours ago`;
+    if (diffDays === 1) return "Yesterday";
+    return `${diffDays} days ago`;
+  };
+
+  // Loading state
+  if (isLoading) {
+    return (
+      <div className="mx-auto max-w-4xl px-4 py-8 sm:px-6 lg:px-8">
+        <Button variant="ghost" asChild className="mb-4">
+          <Link href="/dashboard/proposals">
+            <ArrowLeft className="mr-2 h-4 w-4" />
+            Back to Proposals
+          </Link>
+        </Button>
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <span className="ml-3">Loading proposal...</span>
+        </div>
+      </div>
+    );
+  }
+
+  // Error state
+  if (error || !proposal) {
+    return (
+      <div className="mx-auto max-w-4xl px-4 py-8 sm:px-6 lg:px-8">
+        <Button variant="ghost" asChild className="mb-4">
+          <Link href="/dashboard/proposals">
+            <ArrowLeft className="mr-2 h-4 w-4" />
+            Back to Proposals
+          </Link>
+        </Button>
+        <Card className="border-destructive">
+          <CardContent className="flex flex-col items-center gap-4 p-12 text-center">
+            <AlertCircle className="h-12 w-12 text-destructive" />
+            <div>
+              <h3 className="text-lg font-semibold">Proposal Not Found</h3>
+              <p className="mt-2 text-muted-foreground">
+                The proposal you are looking for does not exist or has been deleted.
+              </p>
+            </div>
+            <Button asChild>
+              <Link href="/dashboard/proposals">Back to Proposals</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  const budgetTotal = proposal.budget?.total 
+    ? parseFloat(proposal.budget.total.replace(/[^0-9.]/g, "")) 
+    : 0;
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-8 sm:px-6 lg:px-8">
@@ -149,8 +197,8 @@ export default function ProposalDetailPage({
               </Badge>
             </div>
             <div className="mt-2 flex items-center gap-4 text-sm text-muted-foreground">
-              <span>Created {proposal.createdAt}</span>
-              <span>Updated {proposal.updatedAt}</span>
+              <span>Created {formatRelativeTime(proposal.created_at)}</span>
+              <span>Updated {formatRelativeTime(proposal.updated_at)}</span>
             </div>
           </div>
 
@@ -186,190 +234,224 @@ export default function ProposalDetailPage({
       {/* Main Content */}
       <div className="space-y-6">
         {/* Vision Statement */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Sparkles className="h-5 w-5 text-primary" />
-              Vision Statement
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-lg leading-relaxed">{proposal.visionStatement}</p>
-          </CardContent>
-        </Card>
+        {proposal.vision_statement && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Sparkles className="h-5 w-5 text-primary" />
+                Vision Statement
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-lg leading-relaxed">{proposal.vision_statement}</p>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Goals */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Target className="h-5 w-5 text-primary" />
-              Goals & Objectives
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ul className="space-y-3">
-              {proposal.goals.map((goal, index) => (
-                <li key={index} className="flex items-start gap-3">
-                  <CheckCircle2 className="mt-0.5 h-5 w-5 flex-shrink-0 text-primary" />
-                  <span>{goal}</span>
-                </li>
-              ))}
-            </ul>
-          </CardContent>
-        </Card>
+        {proposal.goals && proposal.goals.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Target className="h-5 w-5 text-primary" />
+                Goals & Objectives
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ul className="space-y-3">
+                {proposal.goals.map((goal, index) => (
+                  <li key={index} className="flex items-start gap-3">
+                    <CheckCircle2 className="mt-0.5 h-5 w-5 flex-shrink-0 text-primary" />
+                    <span>{goal}</span>
+                  </li>
+                ))}
+              </ul>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Cultural Impact */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Sparkles className="h-5 w-5 text-primary" />
-              Cultural Impact
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="leading-relaxed">{proposal.culturalImpact}</p>
-          </CardContent>
-        </Card>
+        {proposal.cultural_impact && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Sparkles className="h-5 w-5 text-primary" />
+                Cultural Impact
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="leading-relaxed">{proposal.cultural_impact}</p>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Timeline */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Calendar className="h-5 w-5 text-primary" />
-              Timeline
-            </CardTitle>
-            <CardDescription>
-              {proposal.timeline.startDate} - {proposal.timeline.endDate}
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {proposal.timeline.milestones.map((item, index) => (
-                <div key={index} className="flex gap-4">
-                  <Badge variant="outline" className="w-24 justify-center">
-                    {item.date}
-                  </Badge>
-                  <div className="flex-1">
-                    <p>{item.milestone}</p>
+        {proposal.timeline && proposal.timeline.phases && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Calendar className="h-5 w-5 text-primary" />
+                Timeline
+              </CardTitle>
+              {proposal.timeline.duration && (
+                <CardDescription>
+                  Duration: {proposal.timeline.duration}
+                </CardDescription>
+              )}
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                {proposal.timeline.phases.map((phase, index) => (
+                  <div key={index} className="flex gap-4">
+                    <Badge variant="outline" className="w-24 justify-center">
+                      {phase.duration}
+                    </Badge>
+                    <div className="flex-1">
+                      <p className="font-medium">{phase.name}</p>
+                      {phase.tasks && phase.tasks.length > 0 && (
+                        <ul className="mt-1 list-inside list-disc text-sm text-muted-foreground">
+                          {phase.tasks.map((task, i) => (
+                            <li key={i}>{task}</li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Budget */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <DollarSign className="h-5 w-5 text-primary" />
-              Budget
-            </CardTitle>
-            <CardDescription>
-              Total estimated: ${proposal.budget.total.toLocaleString()}
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              {proposal.budget.breakdown.map((item, index) => (
-                <div
-                  key={index}
-                  className="flex items-center justify-between border-b pb-3 last:border-0"
-                >
-                  <span>{item.category}</span>
-                  <span className="font-medium">
-                    ${item.amount.toLocaleString()}
-                  </span>
+        {proposal.budget && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <DollarSign className="h-5 w-5 text-primary" />
+                Budget
+              </CardTitle>
+              <CardDescription>
+                Total estimated: ${budgetTotal.toLocaleString()}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {proposal.budget.breakdown && proposal.budget.breakdown.length > 0 && (
+                <div className="space-y-3">
+                  {proposal.budget.breakdown.map((item, index) => (
+                    <div
+                      key={index}
+                      className="flex items-center justify-between border-b pb-3 last:border-0"
+                    >
+                      <div>
+                        <span>{item.category}</span>
+                        {item.description && (
+                          <p className="text-sm text-muted-foreground">{item.description}</p>
+                        )}
+                      </div>
+                      <span className="font-medium">{item.amount}</span>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
+              )}
+            </CardContent>
+          </Card>
+        )}
 
         {/* Resources */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Package className="h-5 w-5 text-primary" />
-              Required Resources
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ul className="grid gap-2 sm:grid-cols-2">
-              {proposal.resources.map((resource, index) => (
-                <li key={index} className="flex items-start gap-2">
-                  <span className="mt-2 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-primary" />
-                  <span>{resource}</span>
-                </li>
-              ))}
-            </ul>
-          </CardContent>
-        </Card>
+        {proposal.resources && proposal.resources.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Package className="h-5 w-5 text-primary" />
+                Required Resources
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ul className="grid gap-2 sm:grid-cols-2">
+                {proposal.resources.map((resource, index) => (
+                  <li key={index} className="flex items-start gap-2">
+                    <span className="mt-2 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-primary" />
+                    <span>{resource}</span>
+                  </li>
+                ))}
+              </ul>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Collaborators Needed */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Users className="h-5 w-5 text-primary" />
-              Collaborators Needed
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex flex-wrap gap-2">
-              {proposal.collaboratorsNeeded.map((collab, index) => (
-                <Badge
-                  key={index}
-                  variant={
-                    collab.priority === "required" ? "default" : "secondary"
-                  }
-                >
-                  {collab.skill}
-                  {collab.priority === "required" && " *"}
-                </Badge>
-              ))}
-            </div>
-            <p className="mt-3 text-sm text-muted-foreground">
-              * Required roles
-            </p>
-          </CardContent>
-        </Card>
+        {proposal.collaborators_needed && proposal.collaborators_needed.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Users className="h-5 w-5 text-primary" />
+                Collaborators Needed
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex flex-wrap gap-2">
+                {proposal.collaborators_needed.map((collab, index) => (
+                  <Badge
+                    key={index}
+                    variant={
+                      collab.priority === "required" ? "default" : "secondary"
+                    }
+                  >
+                    {collab.role}
+                    {collab.priority === "required" && " *"}
+                  </Badge>
+                ))}
+              </div>
+              <p className="mt-3 text-sm text-muted-foreground">
+                * Required roles
+              </p>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Challenges */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <AlertTriangle className="h-5 w-5 text-amber-500" />
-              Challenges & Risks
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ul className="space-y-2">
-              {proposal.challengesAndRisks.map((challenge, index) => (
-                <li key={index} className="flex items-start gap-2">
-                  <span className="mt-2 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-amber-500" />
-                  <span>{challenge}</span>
-                </li>
-              ))}
-            </ul>
-          </CardContent>
-        </Card>
+        {proposal.challenges_and_mitigation && proposal.challenges_and_mitigation.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <AlertTriangle className="h-5 w-5 text-amber-500" />
+                Challenges & Mitigation
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                {proposal.challenges_and_mitigation.map((item, index) => (
+                  <div key={index} className="border-b pb-4 last:border-0 last:pb-0">
+                    <p className="font-medium text-amber-600">{item.challenge}</p>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      Mitigation: {item.mitigation}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Next Steps */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <ArrowRight className="h-5 w-5 text-primary" />
-              Next Steps
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ol className="list-inside list-decimal space-y-2">
-              {proposal.nextSteps.map((step, index) => (
-                <li key={index}>{step}</li>
-              ))}
-            </ol>
-          </CardContent>
-        </Card>
+        {proposal.next_steps && proposal.next_steps.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <ArrowRight className="h-5 w-5 text-primary" />
+                Next Steps
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ol className="list-inside list-decimal space-y-2">
+                {proposal.next_steps.map((step, index) => (
+                  <li key={index}>{step}</li>
+                ))}
+              </ol>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Call to Action */}
         {proposal.status === "draft" && (
