@@ -6,8 +6,24 @@ export interface User {
   avatar?: string;
   interests: string[];
   professionalBackground?: string;
+  organization?: string;
+  workplace?: string;
+  location?: string;
+  bio?: string;
+  skills?: string[];
   createdAt: Date;
   updatedAt: Date;
+}
+
+// Extended User Profile for AI processing
+export interface UserProfile {
+  name: string;
+  interests: string[];
+  professionalBackground?: string;
+  organization?: string;
+  workplace?: string;
+  location?: string;
+  skills?: string[];
 }
 
 // Inspiration Types
@@ -22,6 +38,92 @@ export interface InspirationCard {
   sourceUrl?: string;
   location?: string;
   tags: string[];
+  saved?: boolean;
+}
+
+// Inspiration Session for batch generation (20 cards, show 4 at a time)
+export interface InspirationSession {
+  id: string;
+  userId: string;
+  cards: InspirationCard[];
+  currentIndex: number; // Which set of 4 we're showing (0, 4, 8, 12, 16)
+  createdAt: Date;
+}
+
+// Research Types for Idea Development
+export interface ResearchTopic {
+  aspect: string;
+  description: string;
+  searchQueries: string[];
+}
+
+export interface ResearchSource {
+  title: string;
+  url: string;
+  content: string;
+  relevantQuote?: string;
+}
+
+export interface ResearchSection {
+  aspect: string;
+  title: string;
+  content: string;
+  keyInsights: string[];
+  actionItems: string[];
+  sources: ResearchSource[];
+}
+
+export interface IdeaResearch {
+  id: string;
+  ideaId: string;
+  sections: ResearchSection[];
+  summary: string;
+  createdAt: Date;
+}
+
+// Proposal Generation Types
+export interface GeneratedProposal {
+  title: string;
+  visionStatement: string;
+  goals: string[];
+  culturalImpact: string;
+  timeline: {
+    duration: string;
+    phases: Array<{
+      name: string;
+      duration: string;
+      tasks: string[];
+    }>;
+  };
+  budget: {
+    total: string;
+    breakdown: Array<{
+      category: string;
+      amount: string;
+      description: string;
+    }>;
+  };
+  collaboratorsNeeded: Array<{
+    role: string;
+    skills: string[];
+    priority: "required" | "preferred" | "nice-to-have";
+    count: number;
+  }>;
+  resources: string[];
+  challengesAndMitigation: Array<{
+    challenge: string;
+    mitigation: string;
+  }>;
+  nextSteps: string[];
+}
+
+export interface ProposalRequirements {
+  hasVenue?: boolean;
+  hasFunding?: boolean;
+  hasTeam?: boolean;
+  budget?: string;
+  timeline?: string;
+  additionalNotes?: string;
 }
 
 // Idea Development Types

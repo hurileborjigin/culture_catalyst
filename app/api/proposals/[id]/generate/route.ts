@@ -1,8 +1,41 @@
 import { NextRequest, NextResponse } from "next/server";
+import { azureOpenAI } from "@/lib/services/azure-openai";
+import type { GeneratedProposal, ProposalRequirements, UserProfile, ResearchSection } from "@/types";
 
-// TODO: Replace with actual AI proposal generation
-// This is a placeholder for backend integration with TypeScript agentic workflow
+// In-memory storage for generated proposals (in production, use database)
+const proposalCache = new Map<
+  string,
+  {
+    proposal: GeneratedProposal;
+    createdAt: Date;
+  }
+>();
 
+// Reference to research cache (would be shared in production)
+const researchCache = new Map<
+  string,
+  {
+    sections: ResearchSection[];
+    summary: string;
+    createdAt: Date;
+  }
+>();
+
+/**
+ * POST /api/proposals/[id]/generate
+ * Generate a comprehensive project proposal based on:
+ * - Idea details
+ * - Research synthesis (from step 2)
+ * - User profile
+ * - User's available requirements (what they already have)
+ * 
+ * Body:
+ * - idea: { title, description, category }
+ * - userProfile: { name, interests, professionalBackground, organization }
+ * - requirements: { hasVenue, hasFunding, hasTeam, budget, timeline, additionalNotes }
+ * - researchSummary: (optional) pre-computed research if available
+ * - forceRefresh: boolean
+ */
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -10,44 +43,152 @@ export async function POST(
   try {
     const { id } = await params;
     const body = await request.json();
-    const { section, context } = body;
-
-    // TODO: Implement actual AI generation
-    // Example integration points:
-    // 1. Fetch proposal and related idea from database
-    // 2. Call AI service to generate/improve section content
-    // 3. Update proposal in database
-    // 4. Return generated content
-
-    // Placeholder generated content based on section
-    const generatedContent: Record<string, string> = {
-      executive_summary:
-        "This community-driven initiative aims to bridge the gap between local artists and residents through interactive walking tours. By highlighting the cultural significance of neighborhood art, we create meaningful connections that strengthen community bonds and support the local creative economy.",
-      problem_statement:
-        "Despite a thriving local art scene, community awareness remains low. Many residents walk past significant artworks daily without understanding their cultural importance or the stories they tell. This disconnect limits community engagement and reduces support for local artists who contribute to neighborhood identity.",
-      objectives:
-        "1. Increase community awareness of local art by 50% within the first year\n2. Connect at least 500 residents with local artists through guided experiences\n3. Generate measurable economic impact for participating artists\n4. Create comprehensive documentation of neighborhood artistic heritage\n5. Establish sustainable programming that can continue beyond initial funding",
-      methodology:
-        "The program utilizes a multi-phase approach combining physical tours with digital engagement. Trained volunteer guides lead monthly walks featuring 8-10 art pieces. Each location includes QR codes linking to artist profiles, purchase options, and extended content. Post-tour community gatherings facilitate direct artist-resident connections.",
-      budget:
-        "Personnel & Training: $1,500\nMarketing & Promotion: $1,000\nMaterials & Signage: $1,200\nTechnology & Platform: $500\nPermits & Insurance: $300\nContingency (10%): $500\n\nTotal Project Budget: $5,000",
-      timeline:
-        "Phase 1 (Weeks 1-4): Planning, permit acquisition, and team assembly\nPhase 2 (Weeks 5-8): Volunteer recruitment, training, and route finalization\nPhase 3 (Weeks 9-10): Soft launch with feedback collection\nPhase 4 (Weeks 11-52): Full program operation with monthly tours\nPhase 5 (Ongoing): Evaluation, iteration, and expansion planning",
-      evaluation:
-        "Success metrics include: participant attendance and satisfaction surveys (target: 85% satisfaction), artist engagement levels, social media reach and engagement, revenue generated for artists, and long-term community engagement indicators. Quarterly reports will track progress against objectives.",
+    const { 
+      idea, 
+      userProfile, 
+      requirements, 
+      researchSummary,
+      forceRefresh 
+    } = body as {
+      idea: {
+        title: string;
+        description: string;
+        category: string;
+      };
+      userProfile?: UserProfile;
+      requirements?: ProposalRequirements;
+      researchSummary?: {
+        sections: Array<{
+          aspect: string;
+          title: string;
+          content: string;
+          keyInsights: string[];
+          actionItems: string[];
+        }>;
+        summary: string;
+      };
+      forceRefresh?: boolean;
     };
 
-    const content = generatedContent[section] || generatedContent.executive_summary;
+    if (!idea || !idea.title || !idea.description) {
+      return NextResponse.json(
+        { error: "Idea with title and description is required" },
+        { status: 400 }
+      );
+    }
+
+    // Check cache first
+    const cacheKey = `proposal_${id}`;
+    if (!forceRefresh && proposalCache.has(cacheKey)) {
+      const cached = proposalCache.get(cacheKey)!;
+      return NextResponse.json({
+        success: true,
+        proposalId: id,
+        proposal: cached.proposal,
+        cached: true,
+        generatedAt: cached.createdAt.toISOString(),
+      });
+    }
+
+    console.log("[Proposal Generation] Starting for:", idea.title);
+
+    // Get research synthesis if not provided
+    let research = researchSummary;
+    if (!research) {
+      const researchCacheKey = `research_${id}`;
+      if (researchCache.has(researchCacheKey)) {
+        const cachedResearch = researchCache.get(researchCacheKey)!;
+        research = {
+          sections: cachedResearch.sections.map((s) => ({
+            aspect: s.aspect,
+            title: s.title,
+            content: s.content,
+            keyInsights: s.keyInsights,
+            actionItems: s.actionItems,
+          })),
+          summary: cachedResearch.summary,
+        };
+      } else {
+        // Create a minimal research summary if none exists
+        research = {
+          sections: [],
+          summary: `Research pending for: ${idea.title}`,
+        };
+      }
+    }
+
+    console.log("[Proposal Generation] Using research with", research.sections.length, "sections");
+
+    // Generate the proposal using LLM
+    console.log("[Proposal Generation] Generating proposal...");
+    const generatedProposal = await azureOpenAI.generateProposal(
+      idea,
+      research,
+      userProfile || {
+        name: "Project Organizer",
+        interests: [],
+      },
+      requirements
+    );
+
+    console.log("[Proposal Generation] Proposal generated successfully");
+
+    // Cache the proposal
+    proposalCache.set(cacheKey, {
+      proposal: generatedProposal,
+      createdAt: new Date(),
+    });
 
     return NextResponse.json({
       success: true,
       proposalId: id,
-      section,
-      generatedContent: content,
+      proposal: generatedProposal,
+      cached: false,
       generatedAt: new Date().toISOString(),
     });
   } catch (error) {
     console.error("Proposal generation error:", error);
+    return NextResponse.json(
+      {
+        error: "Failed to generate proposal",
+        details: error instanceof Error ? error.message : "Unknown error",
+      },
+      { status: 500 }
+    );
+  }
+}
+
+/**
+ * GET /api/proposals/[id]/generate
+ * Get cached generated proposal
+ */
+export async function GET(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params;
+    const cacheKey = `proposal_${id}`;
+
+    if (proposalCache.has(cacheKey)) {
+      const cached = proposalCache.get(cacheKey)!;
+      return NextResponse.json({
+        success: true,
+        proposalId: id,
+        proposal: cached.proposal,
+        cached: true,
+        generatedAt: cached.createdAt.toISOString(),
+      });
+    }
+
+    return NextResponse.json({
+      success: true,
+      proposalId: id,
+      proposal: null,
+      message: "No generated proposal available. Use POST to generate.",
+    });
+  } catch (error) {
+    console.error("Get proposal error:", error);
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }
