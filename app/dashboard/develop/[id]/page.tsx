@@ -30,15 +30,13 @@ import {
 import { useAuth } from "@/contexts/auth-context";
 import type { ResearchSection, UserProfile } from "@/types";
 
-// Mock idea data - in production, this would come from your API
-const mockIdea = {
-  id: "1",
-  title: "Neighborhood Art Walk",
-  description:
-    "A monthly walking tour showcasing local artists with pop-up galleries in storefronts and public spaces. The event will feature live art demonstrations, artist meet-and-greets, and opportunities for community members to purchase original artwork directly from creators.",
-  category: "Visual Arts",
-  status: "in-development" as const,
-};
+interface Idea {
+  id: string;
+  title: string;
+  description: string;
+  category: string;
+  status: string;
+}
 
 export default function IdeaDetailPage({
   params,
@@ -48,7 +46,8 @@ export default function IdeaDetailPage({
   const { id } = use(params);
   const { user } = useAuth();
   
-  const [idea] = useState(mockIdea);
+  const [idea, setIdea] = useState<Idea | null>(null);
+  const [isLoadingIdea, setIsLoadingIdea] = useState(true);
   const [isResearching, setIsResearching] = useState(false);
   const [research, setResearch] = useState<{
     sections: ResearchSection[];
@@ -76,6 +75,28 @@ export default function IdeaDetailPage({
       location: "New York, USA",
     };
   };
+
+  // Fetch idea data on mount
+  useEffect(() => {
+    const fetchIdea = async () => {
+      setIsLoadingIdea(true);
+      try {
+        const response = await fetch(`/api/ideas/${id}`);
+        const data = await response.json();
+        if (data.success && data.idea) {
+          setIdea(data.idea);
+        } else {
+          setError("Failed to load idea");
+        }
+      } catch (err) {
+        console.error("Failed to fetch idea:", err);
+        setError("Failed to load idea");
+      } finally {
+        setIsLoadingIdea(false);
+      }
+    };
+    fetchIdea();
+  }, [id]);
 
   // Check for existing research on mount
   useEffect(() => {
@@ -158,6 +179,52 @@ export default function IdeaDetailPage({
   };
 
   const completedSections = research?.sections?.length || 0;
+
+  // Loading state
+  if (isLoadingIdea) {
+    return (
+      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+        <Button variant="ghost" asChild className="mb-4">
+          <Link href="/dashboard/develop">
+            <ArrowLeft className="mr-2 h-4 w-4" />
+            Back to Ideas
+          </Link>
+        </Button>
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <span className="ml-3">Loading idea...</span>
+        </div>
+      </div>
+    );
+  }
+
+  // Not found state
+  if (!idea) {
+    return (
+      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+        <Button variant="ghost" asChild className="mb-4">
+          <Link href="/dashboard/develop">
+            <ArrowLeft className="mr-2 h-4 w-4" />
+            Back to Ideas
+          </Link>
+        </Button>
+        <Card className="border-destructive">
+          <CardContent className="flex flex-col items-center gap-4 p-12 text-center">
+            <AlertCircle className="h-12 w-12 text-destructive" />
+            <div>
+              <h3 className="text-lg font-semibold">Idea Not Found</h3>
+              <p className="mt-2 text-muted-foreground">
+                The idea you are looking for does not exist or has been deleted.
+              </p>
+            </div>
+            <Button asChild>
+              <Link href="/dashboard/develop">Back to Ideas</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
