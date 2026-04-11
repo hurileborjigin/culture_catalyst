@@ -68,17 +68,51 @@ export async function generateCompletion(
 }
 
 /**
- * Generate structured JSON output from LLM
+ * Attempt to repair truncated JSON
+ */
+function repairTruncatedJson(jsonStr: string): string {
+  let str = jsonStr.trim();
+  
+  // Count brackets to determine what's missing
+  let openBraces = 0, openBrackets = 0, inString = false, escapeNext = false;
+  
+  for (let i = 0; i < str.length; i++) {
+    const char = str[i];
+    if (escapeNext) { escapeNext = false; continue; }
+    if (char === '\\') { escapeNext = true; continue; }
+    if (char === '"' && !escapeNext) { inString = !inString; continue; }
+    if (inString) continue;
+    if (char === '{') openBraces++;
+    if (char === '}') openBraces--;
+    if (char === '[') openBrackets++;
+    if (char === ']') openBrackets--;
+  }
+  
+  // If we're in a string, close it
+  if (inString) {
+    str += '"';
+  }
+  
+  // Close any open brackets/braces
+  while (openBrackets > 0) { str += ']'; openBrackets--; }
+  while (openBraces > 0) { str += '}'; openBraces--; }
+  
+  return str;
+}
+
+/**
+ * Generate structured JSON output from LLM with retry and repair logic
  */
 export async function generateStructuredOutput<T>(
   messages: ChatMessage[],
-  options: CompletionOptions = {}
+  options: CompletionOptions = {},
+  retryCount: number = 0
 ): Promise<T> {
   const systemMessage = messages.find(m => m.role === "system");
   const updatedMessages: ChatMessage[] = [
     {
       role: "system",
-      content: `${systemMessage?.content || ""}\n\nIMPORTANT: Respond with valid JSON only. No markdown, no code blocks.`,
+      content: `${systemMessage?.content || ""}\n\nIMPORTANT: Respond with valid JSON only. No markdown. Keep response concise.`,
     },
     ...messages.filter(m => m.role !== "system"),
   ];
@@ -98,10 +132,32 @@ export async function generateStructuredOutput<T>(
   else if (jsonStr.startsWith("```")) jsonStr = jsonStr.slice(3);
   if (jsonStr.endsWith("```")) jsonStr = jsonStr.slice(0, -3);
   
-  const jsonMatch = jsonStr.match(/[\[{][\s\S]*[\]}]/);
+  const jsonMatch = jsonStr.match(/[\[{][\s\S]*$/);
   if (jsonMatch) jsonStr = jsonMatch[0];
   
-  return JSON.parse(jsonStr.trim()) as T;
+  // First try parsing as-is
+  try {
+    return JSON.parse(jsonStr.trim()) as T;
+  } catch (e) {
+    // Try to repair truncated JSON
+    console.log("[LLM] Attempting to repair truncated JSON...");
+    try {
+      const repaired = repairTruncatedJson(jsonStr);
+      return JSON.parse(repaired) as T;
+    } catch (e2) {
+      // Retry with smaller request if we haven't already
+      if (retryCount < 1) {
+        console.log("[LLM] Retrying with more concise prompt...");
+        const shorterMessages = messages.map(m => ({
+          ...m,
+          content: m.role === "user" ? m.content.slice(0, Math.floor(m.content.length * 0.6)) : m.content
+        }));
+        return generateStructuredOutput<T>(shorterMessages, { ...options, maxTokens: (options.maxTokens || 2000) + 500 }, retryCount + 1);
+      }
+      console.error("[LLM] Failed to parse JSON after repair:", jsonStr.slice(0, 500));
+      throw new Error("Failed to parse LLM response as JSON");
+    }
+  }
 }
 
 /**
@@ -246,32 +302,30 @@ async function processResearchAspect(
   actionItems: string[];
   sources: Array<{ title: string; url: string; relevantQuote: string }>;
 }> {
-  // Compress sources to fit context
-  const compressedSources = await Promise.all(
-    sources.slice(0, 3).map(async (s) => ({
-      title: s.title,
-      url: s.url,
-      content: await compressContent(s.content, 400),
-    }))
-  );
+  // Use only top 2 sources with aggressive compression
+  const topSources = sources.slice(0, 2);
+  const compressedSources = topSources.map(s => ({
+    title: s.title.slice(0, 80),
+    url: s.url,
+    content: s.content.slice(0, 300),
+  }));
 
   const messages: ChatMessage[] = [
     {
       role: "system",
-      content: `Analyze research for one aspect of a project. Create actionable guidance with source citations.
-Output JSON: {"aspect":"${aspect}","title":"Section Title","content":"2-3 paragraphs of guidance","keyInsights":["insight1","insight2","insight3"],"actionItems":["action1","action2","action3"],"sources":[{"title":"src title","url":"url","relevantQuote":"quote"}]}`,
+      content: `You analyze research for "${aspect}". Output compact JSON only:
+{"aspect":"${aspect}","title":"Title (5 words max)","content":"1 paragraph, 3-4 sentences max","keyInsights":["insight1","insight2"],"actionItems":["action1","action2"],"sources":[{"title":"name","url":"url","relevantQuote":"short quote"}]}`,
     },
     {
       role: "user",
-      content: `Project: ${idea.title} - ${idea.description.slice(0, 200)}
-Research aspect: ${aspect}
+      content: `Project: ${idea.title}
 
 Sources:
-${compressedSources.map((s, i) => `[${i + 1}] ${s.title}\nURL: ${s.url}\n${s.content}`).join("\n\n")}`,
+${compressedSources.map((s, i) => `[${i + 1}] ${s.title}\n${s.url}\n${s.content}`).join("\n")}`,
     },
   ];
 
-  return generateStructuredOutput(messages, { maxTokens: 1500 });
+  return generateStructuredOutput(messages, { maxTokens: 1000 });
 }
 
 /**
@@ -386,31 +440,21 @@ export async function generateProposal(
   const messages: ChatMessage[] = [
     {
       role: "system",
-      content: `Create a professional project proposal. Output JSON:
-{"title":"","visionStatement":"2-3 sentences","goals":["g1","g2","g3","g4","g5"],"culturalImpact":"paragraph","timeline":{"duration":"e.g. 12 weeks","phases":[{"name":"","duration":"","tasks":["t1","t2"]}]},"budget":{"total":"","breakdown":[{"category":"","amount":"","description":""}]},"collaboratorsNeeded":[{"role":"","skills":["s1"],"priority":"required|preferred|nice-to-have","count":1}],"resources":["r1","r2"],"challengesAndMitigation":[{"challenge":"","mitigation":""}],"nextSteps":["s1","s2","s3"]}`,
+      content: `Create project proposal as compact JSON:
+{"title":"","visionStatement":"2 sentences","goals":["g1","g2","g3"],"culturalImpact":"2-3 sentences","timeline":{"duration":"weeks","phases":[{"name":"","duration":"","tasks":["t1"]}]},"budget":{"total":"$X","breakdown":[{"category":"","amount":"","description":""}]},"collaboratorsNeeded":[{"role":"","skills":["s1"],"priority":"required","count":1}],"resources":["r1"],"challengesAndMitigation":[{"challenge":"","mitigation":""}],"nextSteps":["s1","s2"]}`,
     },
     {
       role: "user",
-      content: `Project: ${idea.title}
-Description: ${idea.description.slice(0, 500)}
+      content: `${idea.title}: ${idea.description.slice(0, 300)}
 Category: ${idea.category}
-
-Organizer: ${userProfile.name}
-Background: ${userProfile.professionalBackground || "Not specified"}
-Organization: ${userProfile.organization || "Independent"}
-
-Resources: Venue ${userRequirements?.hasVenue ? "Yes" : "No"}, Funding ${userRequirements?.hasFunding ? "Yes" : "No"}, Team ${userRequirements?.hasTeam ? "Yes" : "No"}
-Budget: ${userRequirements?.budget || "TBD"}
-Timeline: ${userRequirements?.timeline || "Flexible"}
-
-Research Summary: ${researchSynthesis.summary}
-
-Key Insights:
-${compressedInsights}`,
+Organizer: ${userProfile.name}, ${userProfile.organization || "Independent"}
+Budget: ${userRequirements?.budget || "TBD"}, Timeline: ${userRequirements?.timeline || "Flexible"}
+Research: ${researchSynthesis.summary.slice(0, 200)}
+Insights: ${compressedInsights.slice(0, 400)}`,
     },
   ];
 
-  return generateStructuredOutput(messages, { maxTokens: 4000 });
+  return generateStructuredOutput(messages, { maxTokens: 3000 });
 }
 
 export const azureOpenAI = {
