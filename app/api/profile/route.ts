@@ -1,23 +1,39 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { verifyToken } from "@/lib/auth";
+
+// Helper to get user ID from JWT token
+async function getUserIdFromRequest(request: NextRequest): Promise<string | null> {
+  // Try cookie first
+  const cookieToken = request.cookies.get("auth_token")?.value;
+  // Then try Authorization header
+  const authHeader = request.headers.get("authorization");
+  const bearerToken = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
+  
+  const token = cookieToken || bearerToken;
+  if (!token) return null;
+
+  const payload = await verifyToken(token);
+  return payload?.userId || null;
+}
 
 /**
  * GET /api/profile
  * Get the current user's profile
  */
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-
-    if (!user) {
+    const userId = await getUserIdFromRequest(request);
+    
+    if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    const supabase = await createClient();
     const { data: profile, error } = await supabase
       .from("profiles")
       .select("*")
-      .eq("id", user.id)
+      .eq("id", userId)
       .single();
 
     if (error) {
@@ -37,14 +53,13 @@ export async function GET() {
 
 /**
  * PUT /api/profile
- * Update the current user's profile
+ * Update the current user's profile (full update)
  */
 export async function PUT(request: NextRequest) {
   try {
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-
-    if (!user) {
+    const userId = await getUserIdFromRequest(request);
+    
+    if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -76,10 +91,11 @@ export async function PUT(request: NextRequest) {
     if (skills !== undefined) updates.skills = skills;
     if (avatar_url !== undefined) updates.avatar_url = avatar_url;
 
+    const supabase = await createClient();
     const { data: profile, error } = await supabase
       .from("profiles")
       .update(updates)
-      .eq("id", user.id)
+      .eq("id", userId)
       .select()
       .single();
 
@@ -96,4 +112,13 @@ export async function PUT(request: NextRequest) {
     console.error("Update profile error:", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
+}
+
+/**
+ * PATCH /api/profile
+ * Partial update of user profile
+ */
+export async function PATCH(request: NextRequest) {
+  // PATCH uses the same logic as PUT for partial updates
+  return PUT(request);
 }
