@@ -69,19 +69,29 @@ function NewIdeaForm() {
     setIsLoading(true);
 
     try {
-      // TODO: Replace with actual API call
-      // const response = await fetch('/api/ideas', {
-      //   method: 'POST',
-      //   headers: { 'Content-Type': 'application/json' },
-      //   body: JSON.stringify(formData),
-      // });
+      const response = await fetch('/api/ideas', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: formData.title,
+          description: formData.description,
+          category: formData.category,
+          inspiration_notes: formData.inspiration,
+          inspiration_id: inspirationId || undefined,
+        }),
+      });
 
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      const data = await response.json();
 
-      // Redirect to the idea development page
-      router.push("/dashboard/develop/1");
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Failed to create idea');
+      }
+
+      // Redirect to the idea development page with the actual ID
+      router.push(`/dashboard/develop/${data.idea.id}`);
     } catch (error) {
       console.error("Error creating idea:", error);
+      alert(error instanceof Error ? error.message : 'Failed to create idea');
     } finally {
       setIsLoading(false);
     }
