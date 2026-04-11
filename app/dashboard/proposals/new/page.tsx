@@ -29,14 +29,12 @@ import {
 import { useAuth } from "@/contexts/auth-context";
 import type { GeneratedProposal, ProposalRequirements, UserProfile } from "@/types";
 
-// Mock idea data - in production, fetch from database
-const mockIdea = {
-  id: "1",
-  title: "Neighborhood Art Walk",
-  description:
-    "A monthly walking tour showcasing local artists with pop-up galleries in storefronts and public spaces.",
-  category: "Visual Arts",
-};
+interface Idea {
+  id: string;
+  title: string;
+  description: string;
+  category: string;
+}
 
 function NewProposalForm() {
   const router = useRouter();
@@ -45,6 +43,8 @@ function NewProposalForm() {
   const ideaId = searchParams.get("idea");
 
   const [isLoading, setIsLoading] = useState(false);
+  const [isLoadingIdea, setIsLoadingIdea] = useState(false);
+  const [idea, setIdea] = useState<Idea | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [generationProgress, setGenerationProgress] = useState(0);
   const [generationStep, setGenerationStep] = useState("");
@@ -60,6 +60,30 @@ function NewProposalForm() {
     timeline: "",
     additionalNotes: "",
   });
+
+  // Fetch idea data on mount
+  useEffect(() => {
+    if (!ideaId) return;
+    
+    const fetchIdea = async () => {
+      setIsLoadingIdea(true);
+      try {
+        const response = await fetch(`/api/ideas/${ideaId}`);
+        const data = await response.json();
+        if (data.success && data.idea) {
+          setIdea(data.idea);
+        } else {
+          setError("Failed to load idea");
+        }
+      } catch (err) {
+        console.error("Failed to fetch idea:", err);
+        setError("Failed to load idea");
+      } finally {
+        setIsLoadingIdea(false);
+      }
+    };
+    fetchIdea();
+  }, [ideaId]);
 
   // Get user profile
   const getUserProfile = (): UserProfile => {
@@ -82,7 +106,7 @@ function NewProposalForm() {
 
   // Generate proposal from AI
   const handleGenerateProposal = async () => {
-    if (!ideaId) return;
+    if (!ideaId || !idea) return;
 
     setIsGenerating(true);
     setError(null);
@@ -114,7 +138,7 @@ function NewProposalForm() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          idea: mockIdea,
+          idea: idea,
           userProfile: getUserProfile(),
           requirements,
         }),
@@ -214,8 +238,34 @@ function NewProposalForm() {
         </Card>
       )}
 
+      {/* Loading Idea */}
+      {ideaId && isLoadingIdea && (
+        <Card className="mb-6">
+          <CardContent className="flex items-center justify-center gap-3 p-12">
+            <Loader2 className="h-6 w-6 animate-spin text-primary" />
+            <span>Loading idea details...</span>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Idea Details */}
+      {ideaId && idea && !isLoadingIdea && (
+        <Card className="mb-6 bg-muted/30">
+          <CardContent className="p-4">
+            <div className="flex items-start gap-3">
+              <Lightbulb className="mt-1 h-5 w-5 text-primary" />
+              <div>
+                <h3 className="font-semibold">{idea.title}</h3>
+                <p className="mt-1 text-sm text-muted-foreground">{idea.description}</p>
+                <Badge variant="secondary" className="mt-2">{idea.category}</Badge>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Requirements Form (Step 1) */}
-      {ideaId && !generatedProposal && !isGenerating && (
+      {ideaId && idea && !generatedProposal && !isGenerating && (
         <Card className="mb-6">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
