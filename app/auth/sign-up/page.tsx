@@ -1,6 +1,5 @@
 "use client";
 
-import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -94,60 +93,43 @@ export default function SignUpPage() {
     }
 
     try {
-      const supabase = createClient();
-      
-      // Sign up with Supabase Auth - this creates the user properly
-      const { data, error: signUpError } = await supabase.auth.signUp({
-        email: formData.email,
-        password: formData.password,
-        options: {
-          emailRedirectTo:
-            process.env.NEXT_PUBLIC_DEV_SUPABASE_REDIRECT_URL ??
-            `${window.location.origin}/auth/callback`,
-          data: {
-            name: formData.name || selectedProfile?.name,
-          },
+      // Use our custom auth API
+      const response = await fetch("/api/auth/register", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
         },
+        body: JSON.stringify({
+          email: formData.email,
+          password: formData.password,
+          name: formData.name || selectedProfile?.name || "User",
+          interests: selectedProfile?.interests || [],
+          professionalBackground: selectedProfile?.professionalBackground || null,
+          organization: selectedProfile?.organization || null,
+          location: selectedProfile?.location || null,
+          bio: selectedProfile 
+            ? `${selectedProfile.name} is a ${selectedProfile.professionalBackground.toLowerCase()}.`
+            : null,
+          skills: selectedProfile?.skills || [],
+        }),
       });
 
-      if (signUpError) {
-        setError(signUpError.message);
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        setError(data.error || "Failed to create account");
         setIsLoading(false);
         return;
       }
 
-      // If we have a selected profile and user was created, update their profile
-      if (data.user && selectedProfile) {
-        // Wait a moment for the trigger to create the profile
-        await new Promise((resolve) => setTimeout(resolve, 500));
-        
-        const { error: profileError } = await supabase
-          .from("profiles")
-          .update({
-            name: selectedProfile.name,
-            professional_background: selectedProfile.professionalBackground,
-            organization: selectedProfile.organization,
-            location: selectedProfile.location,
-            interests: selectedProfile.interests,
-            skills: selectedProfile.skills,
-            bio: `${selectedProfile.name} is a ${selectedProfile.professionalBackground.toLowerCase()}.`,
-          })
-          .eq("id", data.user.id);
-
-        if (profileError) {
-          console.error("Error updating profile:", profileError);
-        }
+      // Store the token
+      if (data.token) {
+        localStorage.setItem("auth_token", data.token);
       }
 
-      // Redirect to success page or dashboard
-      if (data.session) {
-        // User is automatically logged in (email confirmation disabled)
-        router.push("/dashboard");
-        router.refresh();
-      } else {
-        // Email confirmation required
-        router.push("/auth/sign-up-success");
-      }
+      // Redirect to dashboard
+      router.push("/dashboard");
+      router.refresh();
     } catch (err) {
       console.error("Sign up error:", err);
       setError("An unexpected error occurred. Please try again.");
