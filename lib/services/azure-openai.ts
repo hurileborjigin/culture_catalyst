@@ -182,6 +182,8 @@ async function compressContent(content: string, maxLength: number = 500): Promis
 
 /**
  * Generate search queries based on user profile for inspiration discovery
+ * Note: Queries are intentionally GLOBAL - we want to show what people with similar
+ * interests are doing worldwide, not just in the user's local area.
  */
 export async function generateSearchQueries(userProfile: {
   name: string;
@@ -193,13 +195,17 @@ export async function generateSearchQueries(userProfile: {
   const messages: ChatMessage[] = [
     {
       role: "system",
-      content: `Generate 8 web search queries to find inspiring cultural events and community projects for this user. Output a JSON array of strings.`,
+      content: `Generate 8 web search queries to find inspiring cultural events and community projects GLOBALLY for someone with these interests. 
+Do NOT limit to any specific location - search for worldwide examples, innovative projects from different countries, and global best practices.
+Include diverse geographic examples (Europe, Asia, Americas, Africa, etc.).
+Output a JSON array of strings.`,
     },
     {
       role: "user",
       content: `Interests: ${userProfile.interests.join(", ")}
 Background: ${userProfile.professionalBackground || "Not specified"}
-Location: ${userProfile.location || "Not specified"}`,
+
+Generate search queries for GLOBAL inspiration - projects from around the world that would inspire someone with these interests.`,
     },
   ];
 
