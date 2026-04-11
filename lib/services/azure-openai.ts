@@ -1,50 +1,35 @@
 /**
- * LLM Service
+ * Azure OpenAI Service
  * 
- * Provides LLM capabilities using Azure OpenAI or Vercel AI Gateway
- * Falls back to Vercel AI Gateway when Azure OpenAI is not configured
+ * Provides LLM capabilities using Azure OpenAI GPT-5.2
+ * Uses agentic workflow with chunking to handle large contexts
  */
 
-import OpenAI from "openai";
+import { AzureOpenAI } from "openai";
 
 // Configuration from environment variables
-const azureEndpoint = process.env.AZURE_OPENAI_ENDPOINT || "";
-const azureApiKey = process.env.AZURE_OPENAI_API_KEY || "";
+const endpoint = process.env.AZURE_OPENAI_ENDPOINT || "";
+const apiKey = process.env.AZURE_OPENAI_API_KEY || "";
 const apiVersion = process.env.AZURE_OPENAI_API_VERSION || "2024-06-01";
-const deploymentName = process.env.SYNAPSE_LLM_MODEL || "gpt-4o";
+const deploymentName = process.env.SYNAPSE_LLM_MODEL || "gpt-5.2";
 
-// Check if Azure OpenAI is configured
-const useAzure = !!(azureEndpoint && azureApiKey);
+// Initialize Azure OpenAI client
+let client: AzureOpenAI | null = null;
 
-// Initialize client
-let client: OpenAI | null = null;
-
-function getClient(): OpenAI {
+function getClient(): AzureOpenAI {
   if (!client) {
-    if (useAzure) {
-      // Use Azure OpenAI
-      client = new OpenAI({
-        apiKey: azureApiKey,
-        baseURL: `${azureEndpoint}/openai/deployments/${deploymentName}`,
-        defaultQuery: { "api-version": apiVersion },
-        defaultHeaders: { "api-key": azureApiKey },
-      });
-    } else {
-      // Use OpenAI directly (or Vercel AI Gateway)
-      client = new OpenAI({
-        apiKey: process.env.OPENAI_API_KEY || "sk-dummy",
-      });
+    if (!endpoint || !apiKey) {
+      throw new Error(
+        "Azure OpenAI configuration missing. Please set AZURE_OPENAI_ENDPOINT and AZURE_OPENAI_API_KEY environment variables."
+      );
     }
+    client = new AzureOpenAI({
+      endpoint,
+      apiKey,
+      apiVersion,
+    });
   }
   return client;
-}
-
-// Get the model name
-function getModelName(): string {
-  if (useAzure) {
-    return deploymentName;
-  }
-  return "gpt-4o";
 }
 
 export interface ChatMessage {
@@ -59,37 +44,27 @@ export interface CompletionOptions {
 }
 
 /**
- * Generate a chat completion
+ * Generate a chat completion using Azure OpenAI
  */
 export async function generateCompletion(
   messages: ChatMessage[],
   options: CompletionOptions = {}
 ): Promise<string> {
+  if (!endpoint || !apiKey) {
+    throw new Error("Azure OpenAI not configured. Please set AZURE_OPENAI_ENDPOINT and AZURE_OPENAI_API_KEY environment variables.");
+  }
+
   const openai = getClient();
   
-  console.log("[LLM] Using:", useAzure ? "Azure OpenAI" : "OpenAI");
-  console.log("[LLM] Model:", getModelName());
-  
-  try {
-    const response = await openai.chat.completions.create({
-      model: getModelName(),
-      messages,
-      temperature: options.temperature ?? 0.7,
-      max_tokens: options.maxTokens ?? 4096,
-      top_p: options.topP ?? 1,
-    });
+  const response = await openai.chat.completions.create({
+    model: deploymentName,
+    messages,
+    temperature: options.temperature ?? 0.7,
+    max_completion_tokens: options.maxTokens ?? 4096,
+    top_p: options.topP ?? 1,
+  });
 
-    const content = response.choices[0]?.message?.content || "";
-    
-    if (!content) {
-      console.error("[LLM] Empty response. Finish reason:", response.choices[0]?.finish_reason);
-    }
-    
-    return content;
-  } catch (error) {
-    console.error("[LLM] API error:", error);
-    throw error;
-  }
+  return response.choices[0]?.message?.content || "";
 }
 
 /**
@@ -103,7 +78,7 @@ export async function generateStructuredOutput<T>(
   const updatedMessages: ChatMessage[] = [
     {
       role: "system",
-      content: `${systemMessage?.content || ""}\n\nIMPORTANT: You MUST respond with valid JSON only. No markdown, no code blocks, no explanations. Just pure JSON.`,
+      content: `${systemMessage?.content || ""}\n\nIMPORTANT: Respond with valid JSON only. No markdown, no code blocks.`,
     },
     ...messages.filter(m => m.role !== "system"),
   ];
@@ -113,37 +88,40 @@ export async function generateStructuredOutput<T>(
     temperature: options.temperature ?? 0.5,
   });
 
-  // Check for empty response
   if (!response || response.trim() === "") {
-    console.error("[LLM] Empty response received");
-    throw new Error("LLM returned empty response. Please check API configuration.");
+    throw new Error("LLM returned empty response");
   }
 
-  try {
-    // Try to extract JSON from the response
-    let jsonStr = response.trim();
-    
-    // Remove markdown code blocks if present
-    if (jsonStr.startsWith("```json")) {
-      jsonStr = jsonStr.slice(7);
-    } else if (jsonStr.startsWith("```")) {
-      jsonStr = jsonStr.slice(3);
-    }
-    if (jsonStr.endsWith("```")) {
-      jsonStr = jsonStr.slice(0, -3);
-    }
-    
-    // Try to find JSON object or array in the response
-    const jsonMatch = jsonStr.match(/[\[{][\s\S]*[\]}]/);
-    if (jsonMatch) {
-      jsonStr = jsonMatch[0];
-    }
-    
-    return JSON.parse(jsonStr.trim()) as T;
-  } catch (error) {
-    console.error("[LLM] Failed to parse JSON:", response.slice(0, 500));
-    throw new Error(`Failed to parse LLM response as JSON`);
-  }
+  // Extract JSON from response
+  let jsonStr = response.trim();
+  if (jsonStr.startsWith("```json")) jsonStr = jsonStr.slice(7);
+  else if (jsonStr.startsWith("```")) jsonStr = jsonStr.slice(3);
+  if (jsonStr.endsWith("```")) jsonStr = jsonStr.slice(0, -3);
+  
+  const jsonMatch = jsonStr.match(/[\[{][\s\S]*[\]}]/);
+  if (jsonMatch) jsonStr = jsonMatch[0];
+  
+  return JSON.parse(jsonStr.trim()) as T;
+}
+
+/**
+ * Compress/summarize text to reduce token usage
+ */
+async function compressContent(content: string, maxLength: number = 500): Promise<string> {
+  if (content.length <= maxLength) return content;
+  
+  const messages: ChatMessage[] = [
+    {
+      role: "system",
+      content: "Extract the most important information from the text. Be concise. Output plain text only.",
+    },
+    {
+      role: "user",
+      content: `Summarize in under ${maxLength} characters, keeping key facts, numbers, and actionable information:\n\n${content.slice(0, 3000)}`,
+    },
+  ];
+
+  return generateCompletion(messages, { maxTokens: 500, temperature: 0.3 });
 }
 
 /**
@@ -159,16 +137,13 @@ export async function generateSearchQueries(userProfile: {
   const messages: ChatMessage[] = [
     {
       role: "system",
-      content: `You are an expert at generating targeted web search queries to find cultural events and community projects. Generate 6-8 diverse search queries based on the user's profile. Output a JSON array of strings.`,
+      content: `Generate 8 web search queries to find inspiring cultural events and community projects for this user. Output a JSON array of strings.`,
     },
     {
       role: "user",
-      content: `User: ${userProfile.name}
-Interests: ${userProfile.interests.join(", ")}
+      content: `Interests: ${userProfile.interests.join(", ")}
 Background: ${userProfile.professionalBackground || "Not specified"}
-Location: ${userProfile.location || "Not specified"}
-
-Generate search queries to find inspiring events and projects.`,
+Location: ${userProfile.location || "Not specified"}`,
     },
   ];
 
@@ -179,17 +154,9 @@ Generate search queries to find inspiring events and projects.`,
  * Generate inspiration cards from search results
  */
 export async function generateInspirationCards(
-  searchResults: Array<{
-    title: string;
-    content: string;
-    url: string;
-  }>,
-  userProfile: {
-    name: string;
-    interests: string[];
-    professionalBackground?: string;
-  },
-  count: number = 10
+  searchResults: Array<{ title: string; content: string; url: string }>,
+  userProfile: { name: string; interests: string[]; professionalBackground?: string },
+  count: number = 20
 ): Promise<Array<{
   title: string;
   summary: string;
@@ -200,59 +167,62 @@ export async function generateInspirationCards(
   tags: string[];
   sourceUrl: string;
 }>> {
-  // Limit search results to avoid token overflow
-  const limitedResults = searchResults.slice(0, 8);
-  
-  const messages: ChatMessage[] = [
-    {
-      role: "system",
-      content: `Analyze search results and generate ${count} inspiration cards. Output JSON array with objects containing: title, summary, category (Visual Arts/Performing Arts/Music/Heritage/Environment/Commerce/Film/Community/Education/Food), location, relevanceExplanation, successHighlights (array), tags (array), sourceUrl.`,
-    },
-    {
-      role: "user",
-      content: `User interests: ${userProfile.interests.join(", ")}
+  // Chunk results and process in batches to avoid token limits
+  const batchSize = 5;
+  const allCards: Array<{
+    title: string;
+    summary: string;
+    category: string;
+    location: string;
+    relevanceExplanation: string;
+    successHighlights: string[];
+    tags: string[];
+    sourceUrl: string;
+  }> = [];
+
+  for (let i = 0; i < searchResults.length && allCards.length < count; i += batchSize) {
+    const batch = searchResults.slice(i, i + batchSize);
+    const cardsNeeded = Math.min(count - allCards.length, 5);
+    
+    const messages: ChatMessage[] = [
+      {
+        role: "system",
+        content: `Create ${cardsNeeded} inspiration cards from search results. Output JSON array:
+[{"title":"..","summary":"2 sentences","category":"Visual Arts|Performing Arts|Music|Heritage & Traditions|Environment & Sustainability|Commerce & Culture|Film & Media|Community Events|Education & Workshops|Food & Culinary","location":"City, Country","relevanceExplanation":"1 sentence","successHighlights":["metric1","metric2"],"tags":["tag1","tag2"],"sourceUrl":"url"}]`,
+      },
+      {
+        role: "user",
+        content: `User interests: ${userProfile.interests.join(", ")}
 
 Results:
-${limitedResults.map((r, i) => `${i + 1}. ${r.title}\nURL: ${r.url}\n${r.content.slice(0, 600)}`).join("\n\n")}
+${batch.map((r, idx) => `[${idx + 1}] ${r.title}\nURL: ${r.url}\n${r.content.slice(0, 800)}`).join("\n\n")}`,
+      },
+    ];
 
-Generate ${count} cards.`,
-    },
-  ];
+    const batchCards = await generateStructuredOutput<typeof allCards>(messages, { maxTokens: 2000 });
+    allCards.push(...batchCards);
+  }
 
-  return generateStructuredOutput(messages, { maxTokens: 4000 });
+  return allCards.slice(0, count);
 }
 
 /**
  * Generate research topics for idea development
  */
 export async function generateResearchTopics(
-  idea: {
-    title: string;
-    description: string;
-    category: string;
-  },
-  userProfile: {
-    name: string;
-    interests: string[];
-    professionalBackground?: string;
-    location?: string;
-  }
-): Promise<{
-  topics: Array<{
-    aspect: string;
-    description: string;
-    searchQueries: string[];
-  }>;
-}> {
+  idea: { title: string; description: string; category: string },
+  userProfile: { name: string; interests: string[]; professionalBackground?: string; location?: string }
+): Promise<{ topics: Array<{ aspect: string; description: string; searchQueries: string[] }> }> {
   const messages: ChatMessage[] = [
     {
       role: "system",
-      content: `Generate research topics for a cultural project. Cover: case studies, venue/logistics, legal/permits, budget/funding, marketing, staffing, timeline, challenges. For each topic provide aspect name, description, and 2 search queries. Output JSON: { "topics": [{ "aspect": "", "description": "", "searchQueries": [] }] }`,
+      content: `Generate 6 research topics for planning a cultural project. Cover: case studies, venues, permits, budget, marketing, timeline.
+Output JSON: {"topics":[{"aspect":"name","description":"brief desc","searchQueries":["q1","q2"]}]}`,
     },
     {
       role: "user",
       content: `Project: ${idea.title}
-Description: ${idea.description}
+${idea.description}
 Category: ${idea.category}
 Location: ${userProfile.location || "Not specified"}`,
     },
@@ -262,21 +232,56 @@ Location: ${userProfile.location || "Not specified"}`,
 }
 
 /**
- * Synthesize research results into actionable guidance
+ * Process a single research aspect (part of agentic workflow)
+ */
+async function processResearchAspect(
+  idea: { title: string; description: string },
+  aspect: string,
+  sources: Array<{ title: string; url: string; content: string }>
+): Promise<{
+  aspect: string;
+  title: string;
+  content: string;
+  keyInsights: string[];
+  actionItems: string[];
+  sources: Array<{ title: string; url: string; relevantQuote: string }>;
+}> {
+  // Compress sources to fit context
+  const compressedSources = await Promise.all(
+    sources.slice(0, 3).map(async (s) => ({
+      title: s.title,
+      url: s.url,
+      content: await compressContent(s.content, 400),
+    }))
+  );
+
+  const messages: ChatMessage[] = [
+    {
+      role: "system",
+      content: `Analyze research for one aspect of a project. Create actionable guidance with source citations.
+Output JSON: {"aspect":"${aspect}","title":"Section Title","content":"2-3 paragraphs of guidance","keyInsights":["insight1","insight2","insight3"],"actionItems":["action1","action2","action3"],"sources":[{"title":"src title","url":"url","relevantQuote":"quote"}]}`,
+    },
+    {
+      role: "user",
+      content: `Project: ${idea.title} - ${idea.description.slice(0, 200)}
+Research aspect: ${aspect}
+
+Sources:
+${compressedSources.map((s, i) => `[${i + 1}] ${s.title}\nURL: ${s.url}\n${s.content}`).join("\n\n")}`,
+    },
+  ];
+
+  return generateStructuredOutput(messages, { maxTokens: 1500 });
+}
+
+/**
+ * Synthesize research results into actionable guidance using agentic chunked processing
  */
 export async function synthesizeResearch(
-  idea: {
-    title: string;
-    description: string;
-    category: string;
-  },
+  idea: { title: string; description: string; category: string },
   researchResults: Array<{
     aspect: string;
-    sources: Array<{
-      title: string;
-      url: string;
-      content: string;
-    }>;
+    sources: Array<{ title: string; url: string; content: string }>;
   }>
 ): Promise<{
   sections: Array<{
@@ -285,54 +290,58 @@ export async function synthesizeResearch(
     content: string;
     keyInsights: string[];
     actionItems: string[];
-    sources: Array<{
-      title: string;
-      url: string;
-      relevantQuote: string;
-    }>;
+    sources: Array<{ title: string; url: string; relevantQuote: string }>;
   }>;
   summary: string;
 }> {
-  // Limit sources per topic to reduce token count
-  const limitedResults = researchResults.map(r => ({
-    aspect: r.aspect,
-    sources: r.sources.slice(0, 2).map(s => ({
-      title: s.title,
-      url: s.url,
-      content: s.content.slice(0, 500)
-    }))
-  }));
+  // AGENTIC WORKFLOW: Process each research aspect independently
+  console.log(`[Agentic] Processing ${researchResults.length} research aspects in parallel chunks`);
+  
+  // Step 1: Process each aspect separately (chunked processing)
+  const sectionPromises = researchResults.map((r) =>
+    processResearchAspect(idea, r.aspect, r.sources)
+  );
+  
+  // Process in parallel batches of 3 to avoid rate limits
+  const sections: Array<{
+    aspect: string;
+    title: string;
+    content: string;
+    keyInsights: string[];
+    actionItems: string[];
+    sources: Array<{ title: string; url: string; relevantQuote: string }>;
+  }> = [];
+  
+  for (let i = 0; i < sectionPromises.length; i += 3) {
+    const batch = sectionPromises.slice(i, i + 3);
+    const batchResults = await Promise.all(batch);
+    sections.push(...batchResults);
+  }
 
-  const messages: ChatMessage[] = [
+  // Step 2: Generate summary from compressed section data (final merge)
+  const summaryInput = sections.map(s => `${s.title}: ${s.keyInsights.slice(0, 2).join("; ")}`).join("\n");
+  
+  const summaryMessages: ChatMessage[] = [
     {
       role: "system",
-      content: `Synthesize research into actionable guidance. For each aspect create: title, content (1-2 paragraphs), keyInsights (3 items), actionItems (3 items), sources with relevantQuote. Output JSON: { "sections": [...], "summary": "2 sentences" }`,
+      content: "Write a 2-3 sentence executive summary of research findings. Be concise and actionable.",
     },
     {
       role: "user",
-      content: `Project: ${idea.title} - ${idea.description}
-
-Research:
-${limitedResults.map(r => `
-${r.aspect}:
-${r.sources.map(s => `- ${s.title} (${s.url}): ${s.content}`).join("\n")}`).join("\n")}
-
-Synthesize into actionable guidance.`,
+      content: `Project: ${idea.title}\n\nKey findings:\n${summaryInput}`,
     },
   ];
 
-  return generateStructuredOutput(messages, { maxTokens: 6000 });
+  const summary = await generateCompletion(summaryMessages, { maxTokens: 300 });
+
+  return { sections, summary };
 }
 
 /**
- * Generate a project proposal
+ * Generate a project proposal using chunked context
  */
 export async function generateProposal(
-  idea: {
-    title: string;
-    description: string;
-    category: string;
-  },
+  idea: { title: string; description: string; category: string },
   researchSynthesis: {
     sections: Array<{
       aspect: string;
@@ -362,60 +371,42 @@ export async function generateProposal(
   visionStatement: string;
   goals: string[];
   culturalImpact: string;
-  timeline: {
-    duration: string;
-    phases: Array<{
-      name: string;
-      duration: string;
-      tasks: string[];
-    }>;
-  };
-  budget: {
-    total: string;
-    breakdown: Array<{
-      category: string;
-      amount: string;
-      description: string;
-    }>;
-  };
-  collaboratorsNeeded: Array<{
-    role: string;
-    skills: string[];
-    priority: "required" | "preferred" | "nice-to-have";
-    count: number;
-  }>;
+  timeline: { duration: string; phases: Array<{ name: string; duration: string; tasks: string[] }> };
+  budget: { total: string; breakdown: Array<{ category: string; amount: string; description: string }> };
+  collaboratorsNeeded: Array<{ role: string; skills: string[]; priority: "required" | "preferred" | "nice-to-have"; count: number }>;
   resources: string[];
-  challengesAndMitigation: Array<{
-    challenge: string;
-    mitigation: string;
-  }>;
+  challengesAndMitigation: Array<{ challenge: string; mitigation: string }>;
   nextSteps: string[];
 }> {
+  // Compress research insights for context
+  const compressedInsights = researchSynthesis.sections
+    .map(s => `${s.title}: ${s.keyInsights.slice(0, 2).join("; ")}`)
+    .join("\n");
+
   const messages: ChatMessage[] = [
     {
       role: "system",
-      content: `Create a project proposal with: title, visionStatement, goals (5), culturalImpact, timeline (duration + phases with tasks), budget (total + breakdown), collaboratorsNeeded (role, skills, priority, count), resources, challengesAndMitigation, nextSteps. Output valid JSON.`,
+      content: `Create a professional project proposal. Output JSON:
+{"title":"","visionStatement":"2-3 sentences","goals":["g1","g2","g3","g4","g5"],"culturalImpact":"paragraph","timeline":{"duration":"e.g. 12 weeks","phases":[{"name":"","duration":"","tasks":["t1","t2"]}]},"budget":{"total":"","breakdown":[{"category":"","amount":"","description":""}]},"collaboratorsNeeded":[{"role":"","skills":["s1"],"priority":"required|preferred|nice-to-have","count":1}],"resources":["r1","r2"],"challengesAndMitigation":[{"challenge":"","mitigation":""}],"nextSteps":["s1","s2","s3"]}`,
     },
     {
       role: "user",
       content: `Project: ${idea.title}
-Description: ${idea.description}
+Description: ${idea.description.slice(0, 500)}
 Category: ${idea.category}
 
 Organizer: ${userProfile.name}
 Background: ${userProfile.professionalBackground || "Not specified"}
 Organization: ${userProfile.organization || "Independent"}
 
-Resources: Venue: ${userRequirements?.hasVenue ? "Yes" : "No"}, Funding: ${userRequirements?.hasFunding ? "Yes" : "No"}, Team: ${userRequirements?.hasTeam ? "Yes" : "No"}
+Resources: Venue ${userRequirements?.hasVenue ? "Yes" : "No"}, Funding ${userRequirements?.hasFunding ? "Yes" : "No"}, Team ${userRequirements?.hasTeam ? "Yes" : "No"}
 Budget: ${userRequirements?.budget || "TBD"}
 Timeline: ${userRequirements?.timeline || "Flexible"}
 
 Research Summary: ${researchSynthesis.summary}
 
 Key Insights:
-${researchSynthesis.sections.slice(0, 4).map(s => `${s.title}: ${s.keyInsights.slice(0, 2).join("; ")}`).join("\n")}
-
-Generate proposal.`,
+${compressedInsights}`,
     },
   ];
 
