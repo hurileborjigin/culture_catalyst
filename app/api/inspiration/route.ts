@@ -8,9 +8,11 @@ import type { InspirationCard, UserProfile } from "@/types";
 // Helper to get user ID from JWT token in cookie
 async function getUserIdFromRequest(request: NextRequest): Promise<string | null> {
   const token = request.cookies.get("auth_token")?.value;
+  console.log("[v0] Token exists:", !!token);
   if (!token) return null;
   
   const payload = await verifyToken(token);
+  console.log("[v0] JWT payload:", JSON.stringify(payload));
   return payload?.userId || null;
 }
 
@@ -264,6 +266,7 @@ export async function POST(request: NextRequest) {
     }));
 
     // Create new session in database
+    console.log("[v0] Creating session with userId:", userId);
     const { data: newSession, error: sessionError } = await supabase
       .from("inspiration_sessions")
       .insert({
@@ -275,8 +278,9 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (sessionError) {
-      console.error("Error creating session:", sessionError);
-      return NextResponse.json({ error: "Failed to save session" }, { status: 500 });
+      console.error("[v0] Error creating session:", sessionError);
+      console.error("[v0] Session error details:", JSON.stringify(sessionError));
+      return NextResponse.json({ error: "Failed to save session", details: sessionError.message }, { status: 500 });
     }
 
     const currentCards = inspirationCards.slice(0, 4);
