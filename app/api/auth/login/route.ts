@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { createToken, setAuthCookie } from "@/lib/auth";
+import { createToken } from "@/lib/auth";
 
 export async function POST(request: NextRequest) {
   try {
@@ -16,8 +16,7 @@ export async function POST(request: NextRequest) {
 
     const supabase = await createClient();
 
-    // Verify password using PostgreSQL crypt function and fetch user in one query
-    // This works because the password was hashed with crypt(password, gen_salt('bf', 10))
+    // Verify password using PostgreSQL crypt function
     const { data: user, error } = await supabase
       .rpc("verify_user_password", {
         user_email: email.toLowerCase(),
@@ -25,38 +24,10 @@ export async function POST(request: NextRequest) {
       });
 
     if (error || !user || user.length === 0) {
-      // Fallback: try direct query if RPC doesn't exist
-      const { data: fallbackUser, error: fallbackError } = await supabase
-        .from("profiles")
-        .select("id, email, name, password_hash")
-        .eq("email", email.toLowerCase())
-        .single();
-
-      if (fallbackError || !fallbackUser) {
-        return NextResponse.json(
-          { success: false, error: "Invalid email or password" },
-          { status: 401 }
-        );
-      }
-
-      // Create JWT token
-      const token = await createToken({
-        userId: fallbackUser.id,
-        email: fallbackUser.email,
-      });
-
-      // Set cookie
-      await setAuthCookie(token);
-
-      return NextResponse.json({
-        success: true,
-        user: {
-          id: fallbackUser.id,
-          email: fallbackUser.email,
-          name: fallbackUser.name,
-        },
-        token,
-      });
+      return NextResponse.json(
+        { success: false, error: "Invalid email or password" },
+        { status: 401 }
+      );
     }
 
     const verifiedUser = Array.isArray(user) ? user[0] : user;
@@ -67,10 +38,8 @@ export async function POST(request: NextRequest) {
       email: verifiedUser.email,
     });
 
-    // Set cookie
-    await setAuthCookie(token);
-
-    return NextResponse.json({
+    // Create response with user data
+    const response = NextResponse.json({
       success: true,
       user: {
         id: verifiedUser.id,
@@ -79,6 +48,17 @@ export async function POST(request: NextRequest) {
       },
       token,
     });
+
+    // Set auth cookie on the response
+    response.cookies.set("auth_token", token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      maxAge: 60 * 60 * 24 * 7, // 7 days
+      path: "/",
+    });
+
+    return response;
   } catch (error) {
     console.error("Login error:", error);
     return NextResponse.json(
