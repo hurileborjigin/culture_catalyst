@@ -48,23 +48,37 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const supabase = createClient();
 
   const fetchProfile = async (userId: string) => {
-    const { data, error } = await supabase
-      .from("profiles")
-      .select("*")
-      .eq("id", userId)
-      .single();
+    try {
+      console.log("[v0] Fetching profile for user:", userId);
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("id", userId)
+        .single();
 
-    if (error) {
-      console.error("Error fetching profile:", error);
+      if (error) {
+        console.error("[v0] Error fetching profile:", error.message, error.details, error.hint);
+        return null;
+      }
+      console.log("[v0] Profile fetched successfully:", data?.email);
+      return data as UserProfile;
+    } catch (err) {
+      console.error("[v0] Exception fetching profile:", err);
       return null;
     }
-    return data as UserProfile;
   };
 
   const refreshUser = async () => {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      console.log("[v0] Refreshing user...");
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      
+      if (authError) {
+        console.error("[v0] Auth error:", authError.message);
+      }
+      
       setUser(user);
+      console.log("[v0] User state:", user ? user.email : "no user");
 
       if (user) {
         const profileData = await fetchProfile(user.id);
@@ -73,7 +87,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setProfile(null);
       }
     } catch (error) {
-      console.error("Failed to refresh user:", error);
+      console.error("[v0] Failed to refresh user:", error);
       setUser(null);
       setProfile(null);
     }
