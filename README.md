@@ -1,129 +1,505 @@
-Project Title
-Culture Catalyst: AI-Powered Inspiration-to-Proposal Assistant for Cultural Community Building
-Project Overview
-Culture Catalyst is an AI-powered assistant integrated into the cultural collaboration platform. It transforms passive registered users into active contributors by dramatically reducing the friction of initiating cultural projects and event proposals.
+# Culture Catalyst
+
+## AI-Powered Inspiration-to-Proposal Assistant for Cultural Community Building
+
+Culture Catalyst is an AI-powered assistant that transforms passive registered users into active contributors by dramatically reducing the friction of initiating cultural projects and event proposals.
+
+## Table of Contents
+
+- [Overview](#overview)
+- [Features](#features)
+- [Tech Stack](#tech-stack)
+- [Getting Started](#getting-started)
+- [Environment Variables](#environment-variables)
+- [Project Structure](#project-structure)
+- [API Reference](#api-reference)
+- [Workflow](#workflow)
+- [Architecture](#architecture)
+
+---
+
+## Overview
+
 Many users possess ideas, resources, expertise, or motivation to contribute to cultural initiatives yet remain inactive due to lack of inspiration, confidence, structure, or understanding of the requirements to turn an idea into reality.
-Our solution guides users through a seamless three-stage workflow:
 
-Inspire users with personalized cultural opportunities and global success stories
-Help users transform raw ideas into structured, realistic project concepts
-Generate polished event/project proposals ready for platform posting
+Culture Catalyst guides users through a seamless three-stage workflow:
 
-This empowers users to move confidently from passive observers to active participants in the cultural ecosystem.
-Problem Statement
-Although the platform has an existing user base and access to potential participants through public-sector partnerships, many users remain passive and do not actively engage.
-A major reason is significant pre-posting barriers:
+1. **Inspire** users with personalized cultural opportunities and global success stories
+2. **Develop** raw ideas into structured, realistic project concepts with comprehensive research
+3. **Generate** polished event/project proposals ready for platform posting
 
-Lack of inspiration or awareness of possible cultural initiatives
-Uncertainty in developing ideas into feasible plans
-Concerns about feasibility, logistics, regulations, or funding
-Difficulty structuring or communicating ideas effectively
-Intimidation by the complexity of organizing cultural activities
+---
 
-As a result, the platform struggles to convert registered users into active contributors.
-Project Goal
-The primary goal is to increase user activation by motivating and enabling more users to create project/event proposal posts.
-Success will be measured by:
+## Features
 
-Higher proposal/post creation rate
-Increased user engagement during idea development
-Improved conversion from passive browsing to active participation
+### Phase 1: Inspiration Engine
 
-Solution Description
-Culture Catalyst introduces a fully agentic AI-guided workflow that supports users from inspiration through publication of a structured project proposal. The system leverages state-of-the-art multi-agent orchestration to deliver intelligent, adaptive, context-aware assistance with built-in reasoning, tool use, memory, and human-in-the-loop collaboration.
-Phase 1: Inspiration Engine
-The first stage inspires users by exposing them to relevant, exciting, and proven examples of cultural initiatives worldwide.
-Using user profiles, interests, professional background, and platform activity, a dedicated Research Agent (powered by ReAct-style tool calling and Retrieval-Augmented Generation) conducts real-time web-based research, semantic trend analysis, and multi-modal content curation. A Trend Analysis Agent identifies emerging cultural/social trends tailored to user demographics.
-Recommended Inspiration Includes:
+- AI-powered personalized inspiration based on user profile (interests, profession, organization, location)
+- Real-time web search for successful cultural events and initiatives worldwide
+- Batch generation of 20 inspiration cards, displayed 4 at a time with shuffle functionality
+- Save favorite inspirations for later development
 
-Successful cultural event case studies from other cities/countries
-Emerging cultural trends globally
-Innovative event concepts from international communities
-Niche cultural/community initiatives relevant to user interests
-Similar successful projects aligned with the user’s skills/background
+### Phase 2: Idea Development & Research
 
-User Experience:
-Users receive visually engaging recommendation cards with:
+- Comprehensive multi-aspect research covering:
+  - Event planning and logistics
+  - Budget and funding strategies
+  - Legal and regulatory requirements
+  - Marketing and community engagement
+  - Partnerships and collaborations
+- **Full source attribution** - every insight includes clickable references to original sources
+- Actionable insights and step-by-step guidance
 
-Event/project summary
-Personalized relevance explanation
-Key success highlights
-Links to original sources and multi-modal assets (images, videos of past events)
+### Phase 3: Proposal Generation
 
-Objective: Reduce “blank-page paralysis” by showing concrete, achievable examples. The agentic design allows dynamic refinement—if the user provides feedback, the agents iteratively search and re-curate in real time.
-Phase 2: Idea Development & Feasibility Guidance
-Once inspired, users input a raw idea, concept, or theme. A collaborative multi-agent team then transforms it into a structured planning framework.
-Key Agents and Capabilities:
+- Complete project proposal generation including:
+  - Vision statement and goals
+  - Detailed timeline with phases
+  - Budget breakdown
+  - Collaborator requirements with skills needed
+  - Risk assessment and mitigation strategies
+- User can input their existing resources and requirements
+- Export-ready proposals for platform posting
 
-Planning Agent: Breaks the concept into an actionable operational workflow using graph-based reasoning (e.g., directed cyclic graphs for conditional branching and what-if scenario simulation).
-Budget & Logistics Agent: Estimates costs and resources via integrated tools (external APIs for venue/equipment pricing where available, or learned models from historical data).
-Compliance Agent: Delivers legal/regulatory/policy guidance through RAG over up-to-date compliance corpora plus tool-calling for real-time policy database queries (permits, grants, accessibility standards).
-Supervisor/Orchestrator Agent: Coordinates the team, routes tasks dynamically, and incorporates user feedback loops.
+---
 
-Generated Planning Guidance Includes:
+## Tech Stack
 
-Process Workflow: Visual step-by-step roadmap (Idea Validation → Planning → Resource Gathering → Team Formation → Venue Booking → Marketing → Execution) with milestone dependencies.
-Budget Estimation: Detailed breakdowns (venue, equipment, staffing, marketing, operations) with confidence intervals and sensitivity analysis.
-Legal & Regulatory Guidance: Permits, safety, copyright, insurance, accessibility.
-Political / Public Policy Considerations: Relevant grants, municipal restrictions, partnership opportunities.
-Logistics Planning: Venue/equipment needs, staffing roles, timeline, stakeholder dependencies.
+| Component | Technology |
+|-----------|------------|
+| Framework | Next.js 15 (App Router) |
+| Language | TypeScript |
+| Styling | Tailwind CSS |
+| UI Components | shadcn/ui |
+| LLM Provider | Azure OpenAI (GPT-5.2) |
+| Web Search | Tavily API |
+| State Management | React Context + SWR |
 
-Objective: Eliminate uncertainty and fear by making execution feel realistic and achievable. The agentic workflow supports parallel agent execution for speed and sequential refinement for accuracy.
-Phase 3: Proposal Generation Assistant
-After refinement, the system automatically generates a polished draft proposal. A Proposal Generation Agent synthesizes outputs from prior phases, while a Critic/Refinement Agent performs self-reflection and iterative improvement (e.g., checking for clarity, cultural impact, and completeness).
-Generated Proposal Includes:
+---
 
-Project/Event Title
-Description / Vision Statement
-Goals / Intended Cultural Impact
-Proposed Timeline
-Estimated Budget
-Required Resources
-Needed Collaborators / Skills
-Challenges / Risks / Constraints
-Next Steps / Call for Participation
+## Getting Started
 
-The draft serves as a direct template for platform posting, a starting point for editing, or a professional collaboration request. Users can request targeted revisions, triggering another agentic cycle.
-Objective: Remove all friction from posting by converting rough thoughts into platform-ready, high-quality proposals.
-Technical Implementation Approach
-The system leverages state-of-the-art agentic workflows to provide truly autonomous, adaptive, and reliable assistance.
-Core Architecture (2026 SOTA):
+### Prerequisites
 
-Orchestration Framework: Built on LangGraph (the leading production-ready framework for stateful, controllable multi-agent workflows). It models the entire three-phase process as a directed cyclic graph with persistent state, conditional routing, human-in-the-loop checkpoints, and memory management. This enables seamless looping (e.g., user rejects a plan → agents re-plan), long-running sessions, and auditability.
-Alternative/Complementary Role-Based Coordination: CrewAI for intuitive “team of specialists” collaboration, where agents with explicit roles (Researcher, Planner, Compliance Expert, Proposal Writer) work under a Supervisor Agent—ideal for creative, domain-specific tasks like cultural project planning.
-Agent Design Patterns: ReAct (Reason + Act) for tool-using autonomy; hierarchical multi-agent orchestration; self-reflection/critic loops for quality; parallel execution for speed.
-Key Enabling Technologies:
-Retrieval-Augmented Generation (RAG) with vector databases for personalized context (user history, platform data, global cultural knowledge bases).
-Advanced LLMs: Claude Opus 4.6-class models for deep reasoning/compliance; GPT-5.4-class for generation and multi-modal (visual inspiration cards).
-Tool Integration: Real-time web search, trend APIs, external databases (funding, regulations), and platform APIs.
-Memory Systems: Short-term graph state + long-term vector store for continuity across user sessions.
-Observability & Safety: Built-in monitoring (e.g., LangSmith-style tracing), guardrails for factual accuracy, and compliance boundaries.
+- Node.js 18+ or Bun
+- Azure OpenAI API access
+- Tavily API key
 
+### Installation
 
-This agentic design goes far beyond simple prompting—it creates a living, adaptive system that reasons, collaborates, uses tools, learns from feedback, and scales with the platform.
-User Journey Summary
+1. Clone the repository:
 
-User enters platform → AI recommends inspiring examples (dynamic agentic curation).
-User selects inspiration or inputs raw idea → Multi-agent team develops structured planning and feasibility guidance.
-AI generates professional proposal draft → User refines (with agentic support) and publishes.
+```bash
+git clone https://github.com/hurileborjigin/culture_catalyst.git
+cd culture_catalyst
+```
 
-Expected Impact
-Culture Catalyst transforms the platform from a passive networking directory into an active, agentic idea incubation environment. Benefits include:
+2. Install dependencies:
 
-Increased User Activation: Users feel genuinely motivated and empowered.
-Higher Proposal Volume: More ideas become posted opportunities.
-Better Proposal Quality: Structured, detailed, realistic, and actionable posts.
-Stronger Community Building: Higher-quality proposals drive more meaningful collaborations.
+```bash
+npm install
+# or
+pnpm install
+# or
+bun install
+```
 
-The agentic architecture ensures the system improves over time through usage data and can adapt to new cultural trends or platform features automatically.
-Long-Term Vision
-Future iterations can expand into a full agentic ecosystem:
+3. Create environment file:
 
-Collaborator matchmaking based on proposal requirements (via additional specialized agents).
-Grant/funding recommendation and application support.
-Mentor/expert advisory suggestions.
-AI-assisted team/project management post-posting (task delegation, progress tracking).
-Inter-agent protocols (e.g., A2A) for seamless integration with external cultural tools or public-sector systems.
+```bash
+cp .env.local.example .env.local
+```
 
-Final Value Proposition
-Culture Catalyst empowers cultural communities by turning inspiration into action. Through cutting-edge agentic AI—driven by inspiration engines, collaborative planning agents, and self-refining proposal generators—the platform helps users overcome uncertainty and friction, enabling more people to actively initiate and shape cultural experiences together.
+4. Configure your environment variables (see below)
+
+5. Run the development server:
+
+```bash
+npm run dev
+# or
+pnpm dev
+# or
+bun dev
+```
+
+6. Open [http://localhost:3000](http://localhost:3000)
+
+---
+
+## Environment Variables
+
+Create a `.env.local` file in the root directory with the following variables:
+
+```env
+# LLM Provider - Azure OpenAI
+SYNAPSE_LLM_MODEL=gpt-5.2
+AZURE_OPENAI_API_KEY=your_azure_openai_api_key
+AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com
+AZURE_OPENAI_API_VERSION=2024-06-01
+
+# Search APIs
+TAVILY_API_KEY=your_tavily_api_key
+```
+
+### Getting API Keys
+
+#### Azure OpenAI
+
+1. Go to [Azure Portal](https://portal.azure.com)
+2. Create an Azure OpenAI resource
+3. Deploy your model (e.g., gpt-5.2)
+4. Copy the API key and endpoint from the "Keys and Endpoint" section
+
+#### Tavily
+
+1. Sign up at [Tavily](https://tavily.com)
+2. Get your API key from the dashboard
+
+---
+
+## Project Structure
+
+```
+culture_catalyst/
+├── app/
+│   ├── api/
+│   │   ├── inspiration/
+│   │   │   └── route.ts          # Inspiration generation API
+│   │   ├── ideas/
+│   │   │   └── [id]/
+│   │   │       └── analyze/
+│   │   │           └── route.ts  # Idea research API
+│   │   └── proposals/
+│   │       └── [id]/
+│   │           └── generate/
+│   │               └── route.ts  # Proposal generation API
+│   ├── dashboard/
+│   │   ├── inspiration/
+│   │   │   └── page.tsx          # Inspiration discovery page
+│   │   ├── develop/
+│   │   │   └── [id]/
+│   │   │       └── page.tsx      # Idea development page
+│   │   └── proposals/
+│   │       └── new/
+│   │           └── page.tsx      # Proposal generation page
+│   └── layout.tsx
+├── components/
+│   └── ui/                       # shadcn/ui components
+├── contexts/
+│   └── auth-context.tsx          # Authentication context
+├── lib/
+│   ├── services/
+│   │   ├── azure-openai.ts       # Azure OpenAI service
+│   │   └── tavily-search.ts      # Tavily search service
+│   ├── api.ts                    # API utilities
+│   └── utils.ts                  # Helper functions
+├── types/
+│   └── index.ts                  # TypeScript type definitions
+└── .env.local.example            # Environment template
+```
+
+---
+
+## API Reference
+
+### POST `/api/inspiration`
+
+Generates personalized inspiration cards based on user profile.
+
+**Request Body:**
+
+```json
+{
+  "userProfile": {
+    "name": "John Doe",
+    "interests": ["music", "community building", "sustainability"],
+    "professionalBackground": "Event Manager",
+    "organization": "City Arts Council",
+    "workplace": "Downtown Cultural Center",
+    "location": "San Francisco, CA",
+    "skills": ["project management", "budgeting", "marketing"]
+  },
+  "sessionId": "optional-existing-session-id"
+}
+```
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "session": {
+    "id": "session_abc123",
+    "cards": [...],           // Array of 20 InspirationCard objects
+    "currentIndex": 0,
+    "createdAt": "2024-01-15T10:30:00Z"
+  },
+  "currentCards": [...]       // Current 4 cards to display
+}
+```
+
+---
+
+### POST `/api/ideas/[id]/analyze`
+
+Performs comprehensive research on an idea with source citations.
+
+**Request Body:**
+
+```json
+{
+  "idea": {
+    "title": "Community Music Festival",
+    "description": "A weekend outdoor music festival celebrating local artists..."
+  },
+  "userProfile": {
+    "name": "John Doe",
+    "interests": ["music", "community building"],
+    "professionalBackground": "Event Manager"
+  }
+}
+```
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "research": {
+    "id": "research_xyz789",
+    "ideaId": "idea_123",
+    "sections": [
+      {
+        "aspect": "Event Planning",
+        "title": "Planning Your Community Music Festival",
+        "content": "Based on successful festivals like...",
+        "keyInsights": ["Start planning 6-12 months ahead", ...],
+        "actionItems": ["Secure venue permits", ...],
+        "sources": [
+          {
+            "title": "Festival Planning Guide 2024",
+            "url": "https://example.com/guide",
+            "content": "...",
+            "relevantQuote": "Early venue booking is critical..."
+          }
+        ]
+      }
+    ],
+    "summary": "Your community music festival has strong potential...",
+    "createdAt": "2024-01-15T10:35:00Z"
+  }
+}
+```
+
+---
+
+### POST `/api/proposals/[id]/generate`
+
+Generates a complete project proposal.
+
+**Request Body:**
+
+```json
+{
+  "idea": {
+    "title": "Community Music Festival",
+    "description": "A weekend outdoor music festival..."
+  },
+  "research": { ... },              // Research from Phase 2
+  "userProfile": { ... },
+  "requirements": {
+    "hasVenue": true,
+    "hasFunding": false,
+    "hasTeam": false,
+    "budget": "$10,000 - $25,000",
+    "timeline": "6 months",
+    "additionalNotes": "Have partnership with local radio station"
+  }
+}
+```
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "proposal": {
+    "title": "Harmony in the Park: Community Music Festival 2024",
+    "visionStatement": "To create an inclusive celebration...",
+    "goals": ["Unite 500+ community members", ...],
+    "culturalImpact": "This festival will strengthen...",
+    "timeline": {
+      "duration": "6 months",
+      "phases": [
+        {
+          "name": "Planning & Permits",
+          "duration": "2 months",
+          "tasks": ["Finalize venue agreement", ...]
+        }
+      ]
+    },
+    "budget": {
+      "total": "$18,500",
+      "breakdown": [
+        {
+          "category": "Venue & Equipment",
+          "amount": "$5,000",
+          "description": "Stage rental, sound system..."
+        }
+      ]
+    },
+    "collaboratorsNeeded": [
+      {
+        "role": "Sound Engineer",
+        "skills": ["audio mixing", "live sound"],
+        "priority": "required",
+        "count": 2
+      }
+    ],
+    "resources": ["PA system", "Stage", ...],
+    "challengesAndMitigation": [
+      {
+        "challenge": "Weather dependency",
+        "mitigation": "Reserve indoor backup venue..."
+      }
+    ],
+    "nextSteps": ["Post proposal to platform", ...]
+  }
+}
+```
+
+---
+
+## Workflow
+
+### User Journey
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                         CULTURE CATALYST                             │
+└─────────────────────────────────────────────────────────────────────┘
+                                  │
+                                  ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  PHASE 1: INSPIRATION                                                │
+│  ┌─────────────┐    ┌─────────────┐    ┌─────────────────────────┐  │
+│  │ User Profile│───▶│ LLM: Generate│───▶│ Tavily: Web Search     │  │
+│  │ Analysis    │    │ Search Queries│   │ for Success Stories    │  │
+│  └─────────────┘    └─────────────┘    └───────────┬─────────────┘  │
+│                                                     │                │
+│                     ┌───────────────────────────────▼──────────────┐ │
+│                     │ LLM: Generate 20 Inspiration Cards           │ │
+│                     │ (Show 4 at a time, shuffle for more)         │ │
+│                     └──────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────────────┘
+                                  │
+                                  ▼ User selects inspiration or adds own idea
+┌─────────────────────────────────────────────────────────────────────┐
+│  PHASE 2: IDEA DEVELOPMENT                                           │
+│  ┌─────────────┐    ┌─────────────┐    ┌─────────────────────────┐  │
+│  │ Idea Input  │───▶│ LLM: Generate│───▶│ Tavily: Multi-aspect   │  │
+│  │             │    │ Research     │    │ Research Search        │  │
+│  │             │    │ Topics       │    │                        │  │
+│  └─────────────┘    └─────────────┘    └───────────┬─────────────┘  │
+│                                                     │                │
+│                     ┌───────────────────────────────▼──────────────┐ │
+│                     │ LLM: Synthesize Research with Sources        │ │
+│                     │ • Key Insights    • Action Items             │ │
+│                     │ • Source Citations (clickable links)         │ │
+│                     └──────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────────────┘
+                                  │
+                                  ▼ User inputs their requirements
+┌─────────────────────────────────────────────────────────────────────┐
+│  PHASE 3: PROPOSAL GENERATION                                        │
+│  ┌─────────────────────────────────────────────────────────────────┐ │
+│  │ Inputs: Idea + Research + User Profile + Requirements           │ │
+│  └───────────────────────────────┬─────────────────────────────────┘ │
+│                                  │                                   │
+│                                  ▼                                   │
+│  ┌─────────────────────────────────────────────────────────────────┐ │
+│  │ LLM: Generate Complete Project Proposal                         │ │
+│  │ • Vision & Goals      • Timeline & Phases                       │ │
+│  │ • Budget Breakdown    • Collaborators Needed                    │ │
+│  │ • Risk Mitigation     • Next Steps                              │ │
+│  └─────────────────────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────────────┘
+                                  │
+                                  ▼
+                    ┌─────────────────────────┐
+                    │  PUBLISH TO PLATFORM    │
+                    └─────────────────────────┘
+```
+
+---
+
+## Architecture
+
+### Backend Services
+
+#### Azure OpenAI Service (`lib/services/azure-openai.ts`)
+
+Core LLM integration providing:
+
+- `generateSearchQueries()` - Analyzes user profile to create targeted search queries
+- `generateInspirationCards()` - Creates personalized inspiration from search results
+- `generateResearchTopics()` - Identifies research aspects for idea development
+- `synthesizeResearch()` - Compiles research with proper source citations
+- `generateProposal()` - Creates comprehensive project proposals
+
+#### Tavily Search Service (`lib/services/tavily-search.ts`)
+
+Web search integration providing:
+
+- `search()` - Single query search with configurable options
+- `searchMultiple()` - Batch search across multiple queries
+- `searchForInspiration()` - Specialized search for cultural events and success stories
+- `searchForResearch()` - Deep research search with comprehensive results
+
+### Data Flow
+
+1. **User Profile** → Used throughout all phases for personalization
+2. **Inspiration Cards** → Stored in session (20 cards, paginated display)
+3. **Research Data** → Includes full source URLs for transparency
+4. **Proposals** → Complete, structured documents ready for export
+
+---
+
+## Problem Statement
+
+Although cultural platforms have existing user bases, many users remain passive due to:
+
+- Lack of inspiration or awareness of possible cultural initiatives
+- Uncertainty in developing ideas into feasible plans
+- Concerns about feasibility, logistics, regulations, or funding
+- Difficulty structuring or communicating ideas effectively
+- Intimidation by the complexity of organizing cultural activities
+
+Culture Catalyst addresses all these barriers through AI-powered guidance.
+
+---
+
+## Expected Impact
+
+- **Increased User Activation**: Users feel genuinely motivated and empowered
+- **Higher Proposal Volume**: More ideas become posted opportunities
+- **Better Proposal Quality**: Structured, detailed, realistic, and actionable posts
+- **Stronger Community Building**: Higher-quality proposals drive more meaningful collaborations
+
+---
+
+## License
+
+MIT License - see [LICENSE](LICENSE) for details.
+
+---
+
+## Contributing
+
+Contributions are welcome! Please read our contributing guidelines before submitting PRs.
+
+---
+
+## Support
+
+For questions or issues, please open a GitHub issue or contact the maintainers.
