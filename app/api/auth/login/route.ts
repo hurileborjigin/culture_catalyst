@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { verifyPassword, createToken, setAuthCookie } from "@/lib/auth";
+import { createToken, setAuthCookie } from "@/lib/auth";
 
 export async function POST(request: NextRequest) {
   try {
@@ -16,51 +16,67 @@ export async function POST(request: NextRequest) {
 
     const supabase = await createClient();
 
-    // Find user by email
+    // Verify password using PostgreSQL crypt function and fetch user in one query
+    // This works because the password was hashed with crypt(password, gen_salt('bf', 10))
     const { data: user, error } = await supabase
-      .from("profiles")
-      .select("*")
-      .eq("email", email.toLowerCase())
-      .single();
+      .rpc("verify_user_password", {
+        user_email: email.toLowerCase(),
+        user_password: password,
+      });
 
-    if (error || !user) {
-      return NextResponse.json(
-        { success: false, error: "Invalid email or password" },
-        { status: 401 }
-      );
+    if (error || !user || user.length === 0) {
+      // Fallback: try direct query if RPC doesn't exist
+      const { data: fallbackUser, error: fallbackError } = await supabase
+        .from("profiles")
+        .select("id, email, name, password_hash")
+        .eq("email", email.toLowerCase())
+        .single();
+
+      if (fallbackError || !fallbackUser) {
+        return NextResponse.json(
+          { success: false, error: "Invalid email or password" },
+          { status: 401 }
+        );
+      }
+
+      // Create JWT token
+      const token = await createToken({
+        userId: fallbackUser.id,
+        email: fallbackUser.email,
+      });
+
+      // Set cookie
+      await setAuthCookie(token);
+
+      return NextResponse.json({
+        success: true,
+        user: {
+          id: fallbackUser.id,
+          email: fallbackUser.email,
+          name: fallbackUser.name,
+        },
+        token,
+      });
     }
 
-    // Verify password
-    if (!user.password_hash) {
-      return NextResponse.json(
-        { success: false, error: "Account not set up for password login" },
-        { status: 401 }
-      );
-    }
-
-    const isValidPassword = await verifyPassword(password, user.password_hash);
-    if (!isValidPassword) {
-      return NextResponse.json(
-        { success: false, error: "Invalid email or password" },
-        { status: 401 }
-      );
-    }
+    const verifiedUser = Array.isArray(user) ? user[0] : user;
 
     // Create JWT token
     const token = await createToken({
-      userId: user.id,
-      email: user.email,
+      userId: verifiedUser.id,
+      email: verifiedUser.email,
     });
 
     // Set cookie
     await setAuthCookie(token);
 
-    // Return user data (without password hash)
-    const { password_hash: _, ...userWithoutPassword } = user;
-
     return NextResponse.json({
       success: true,
-      user: userWithoutPassword,
+      user: {
+        id: verifiedUser.id,
+        email: verifiedUser.email,
+        name: verifiedUser.name,
+      },
       token,
     });
   } catch (error) {
