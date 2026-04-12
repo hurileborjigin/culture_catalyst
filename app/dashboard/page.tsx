@@ -57,6 +57,7 @@ interface Recommendation {
     author_name: string;
     author_organization: string | null;
     vision_statement: string | null;
+    published_at: string;
   } | null;
 }
 
@@ -389,6 +390,12 @@ export default function DashboardPage() {
                             <Badge variant="outline" className="shrink-0 text-xs">
                               {rec.relevanceScore}%
                             </Badge>
+                            {rec.publishedProposal.published_at &&
+                              new Date(rec.publishedProposal.published_at).getTime() > Date.now() - 7 * 24 * 60 * 60 * 1000 && (
+                              <Badge className="shrink-0 text-xs bg-green-500 hover:bg-green-600">
+                                New!
+                              </Badge>
+                            )}
                           </div>
                           <p className="text-xs text-muted-foreground mt-0.5">
                             {rec.publishedProposal.author_name}

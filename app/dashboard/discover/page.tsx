@@ -24,6 +24,7 @@ import {
   Loader2,
   CheckCircle,
   Briefcase,
+  Mic,
 } from "lucide-react";
 
 interface PublishedProposal {
@@ -72,6 +73,7 @@ const CATEGORIES = [
 export default function DiscoverPage() {
   const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
   const [published, setPublished] = useState<PublishedProposal[]>([]);
+  const [newVoices, setNewVoices] = useState<PublishedProposal[]>([]);
   const [isLoadingRecs, setIsLoadingRecs] = useState(true);
   const [isLoadingBrowse, setIsLoadingBrowse] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -80,6 +82,7 @@ export default function DiscoverPage() {
   useEffect(() => {
     fetchRecommendations();
     fetchPublished();
+    fetchNewVoices();
   }, []);
 
   useEffect(() => {
@@ -118,6 +121,18 @@ export default function DiscoverPage() {
     }
   };
 
+  const fetchNewVoices = async () => {
+    try {
+      const res = await fetch("/api/published-proposals?sort=new_voices&pageSize=3");
+      const data = await res.json();
+      if (data.success) {
+        setNewVoices(data.proposals || []);
+      }
+    } catch (error) {
+      console.error("Error fetching new voices:", error);
+    }
+  };
+
   const handleRefresh = async () => {
     setIsRefreshing(true);
     try {
@@ -146,6 +161,42 @@ export default function DiscoverPage() {
           Explore published proposals and find projects that match your interests
         </p>
       </div>
+
+      {/* New Voices Spotlight */}
+      {newVoices.length > 0 && (
+        <div className="mb-8">
+          <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+            <Mic className="h-4 w-4" />
+            New Voices
+          </h2>
+          <p className="mb-4 text-xs text-muted-foreground">
+            Proposals from emerging contributors — help amplify diverse perspectives
+          </p>
+          <div className="grid gap-4 sm:grid-cols-3">
+            {newVoices.map((proposal) => (
+              <Link key={proposal.id} href={`/dashboard/discover/${proposal.id}`}>
+                <Card className="h-full transition-all hover:shadow-md hover:border-primary/30">
+                  <CardContent className="py-4">
+                    {proposal.category && (
+                      <Badge variant="secondary" className="mb-2 text-xs">
+                        {proposal.category}
+                      </Badge>
+                    )}
+                    <p className="font-medium text-sm line-clamp-1">{proposal.title}</p>
+                    <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
+                      {proposal.vision_statement || ""}
+                    </p>
+                    <div className="flex items-center gap-1 text-xs text-muted-foreground mt-2">
+                      <Users className="h-3 w-3" />
+                      {proposal.author_name}
+                    </div>
+                  </CardContent>
+                </Card>
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
 
       <Tabs defaultValue="recommended" className="space-y-6">
         <div className="flex items-center justify-between">

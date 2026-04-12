@@ -94,7 +94,7 @@ export default function ProposalDetailPage({
     setIsPublishing(true);
 
     try {
-      const response = await fetch(`/api/proposals/${id}/publish`, {
+      const response = await fetch(`/api/proposals/${id}`, {
         method: "POST",
       });
 

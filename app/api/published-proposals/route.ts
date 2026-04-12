@@ -27,6 +27,7 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const category = searchParams.get("category");
     const proposalId = searchParams.get("proposal_id");
+    const sort = searchParams.get("sort");
     const page = parseInt(searchParams.get("page") || "1");
     const pageSize = parseInt(searchParams.get("pageSize") || "12");
     const offset = (page - 1) * pageSize;
@@ -34,8 +35,14 @@ export async function GET(request: NextRequest) {
     let query = supabase
       .from("published_proposals")
       .select("*", { count: "exact" })
-      .order("published_at", { ascending: false })
       .range(offset, offset + pageSize - 1);
+
+    // New voices: surface proposals from less-active users (oldest published first)
+    if (sort === "new_voices") {
+      query = query.neq("user_id", userId).order("published_at", { ascending: true });
+    } else {
+      query = query.order("published_at", { ascending: false });
+    }
 
     if (category) {
       query = query.eq("category", category);

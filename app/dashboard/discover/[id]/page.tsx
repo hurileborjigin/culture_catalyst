@@ -75,6 +75,7 @@ interface PublishedProposal {
 
 interface Comment {
   id: string;
+  userId: string;
   content: string;
   createdAt: string;
   commenterName: string;
@@ -503,10 +504,16 @@ export default function PublishedProposalDetailPage() {
 
         {/* Comments */}
         <section>
-          <h2 className="mb-3 flex items-center gap-2 text-xl font-semibold">
+          <h2 className="mb-1 flex items-center gap-2 text-xl font-semibold">
             <MessageSquare className="h-5 w-5 text-primary" />
             Discussion ({comments.length})
           </h2>
+          {comments.length > 0 && (
+            <p className="mb-3 text-xs text-muted-foreground">
+              {comments.length} comment{comments.length !== 1 ? "s" : ""} from{" "}
+              {new Set(comments.map((c) => c.userId)).size} contributor{new Set(comments.map((c) => c.userId)).size !== 1 ? "s" : ""}
+            </p>
+          )}
 
           <div className="space-y-3 mb-4">
             {comments.length === 0 ? (
@@ -535,6 +542,31 @@ export default function PublishedProposalDetailPage() {
               ))
             )}
           </div>
+
+          {/* Guided prompts for first-time commenters */}
+          {!newComment && comments.filter((c) => c.userId === user?.id).length === 0 && !isAuthor && (
+            <div className="mb-3">
+              <p className="text-xs text-muted-foreground mb-2">Quick start — click to begin your comment:</p>
+              <div className="flex flex-wrap gap-2">
+                {[
+                  `I'm interested in the ${proposal.category || "cultural"} aspect of this project`,
+                  "How can I contribute to this initiative?",
+                  "I have relevant experience and would love to discuss this further",
+                  "This aligns with work I've been doing — let's connect!",
+                ].map((prompt) => (
+                  <Button
+                    key={prompt}
+                    variant="outline"
+                    size="sm"
+                    className="text-xs h-auto py-1.5 whitespace-normal text-left"
+                    onClick={() => setNewComment(prompt)}
+                  >
+                    {prompt}
+                  </Button>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div className="flex gap-2">
             <Textarea

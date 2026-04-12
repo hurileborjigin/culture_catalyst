@@ -114,7 +114,7 @@ export default function ProposalsPage() {
 
   const handlePublish = async (id: string) => {
     try {
-      const response = await fetch(`/api/proposals/${id}/publish`, {
+      const response = await fetch(`/api/proposals/${id}`, {
         method: "POST",
       });
       const data = await response.json();

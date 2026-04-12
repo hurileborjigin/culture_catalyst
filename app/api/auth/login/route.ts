@@ -38,6 +38,12 @@ export async function POST(request: NextRequest) {
       email: verifiedUser.email,
     });
 
+    // Update last_login timestamp
+    await supabase
+      .from("profiles")
+      .update({ last_login: new Date().toISOString() })
+      .eq("id", verifiedUser.id);
+
     // Create response with user data
     const response = NextResponse.json({
       success: true,
