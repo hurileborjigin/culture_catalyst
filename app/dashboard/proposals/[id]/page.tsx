@@ -65,6 +65,7 @@ export default function ProposalDetailPage({
   const [isLoading, setIsLoading] = useState(true);
   const [proposal, setProposal] = useState<Proposal | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [publishedId, setPublishedId] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchProposal = async () => {
@@ -100,6 +101,9 @@ export default function ProposalDetailPage({
       const data = await response.json();
       if (data.success) {
         setProposal({ ...proposal, status: "submitted" });
+        if (data.publishedProposal?.id) {
+          setPublishedId(data.publishedProposal.id);
+        }
       }
     } catch (error) {
       console.error("Error publishing proposal:", error);
@@ -107,6 +111,23 @@ export default function ProposalDetailPage({
       setIsPublishing(false);
     }
   };
+
+  // Fetch published version ID for submitted proposals
+  useEffect(() => {
+    if (proposal?.status !== "submitted") return;
+    const fetchPublished = async () => {
+      try {
+        const res = await fetch(`/api/published-proposals?proposal_id=${id}`);
+        const data = await res.json();
+        if (data.success && data.proposals?.length > 0) {
+          setPublishedId(data.proposals[0].id);
+        }
+      } catch (err) {
+        console.error("Error fetching published version:", err);
+      }
+    };
+    fetchPublished();
+  }, [id, proposal?.status]);
 
   const formatRelativeTime = (dateString: string) => {
     const date = new Date(dateString);
@@ -182,6 +203,23 @@ export default function ProposalDetailPage({
             Back to Proposals
           </Link>
         </Button>
+
+        {publishedId && (
+          <Card className="mb-4 border-primary/30 bg-primary/5">
+            <CardContent className="flex items-center justify-between py-3">
+              <div className="flex items-center gap-2 text-sm">
+                <CheckCircle2 className="h-4 w-4 text-primary" />
+                <span>This proposal is published. View comments and collaborators on the public page.</span>
+              </div>
+              <Button size="sm" asChild>
+                <Link href={`/dashboard/discover/${publishedId}`}>
+                  View Published
+                  <ArrowRight className="ml-2 h-3 w-3" />
+                </Link>
+              </Button>
+            </CardContent>
+          </Card>
+        )}
 
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>

@@ -39,28 +39,30 @@ interface Idea {
   title: string;
   description: string;
   category: string;
-  status: "draft" | "in-development" | "ready-for-proposal" | "archived";
+  status: "draft" | "researching" | "researched" | "proposal_generated";
+  inspiration_id?: string | null;
   created_at: string;
   updated_at: string;
-  idea_research?: Array<{ id: string }>;
+  idea_research?: Array<{ id: string; summary?: string | null }>;
+  checklist?: Array<{ text: string; completed: boolean }>;
 }
 
-const statusConfig = {
+const statusConfig: Record<string, { label: string; variant: "outline" | "secondary" | "default" }> = {
   draft: {
     label: "Draft",
     variant: "outline" as const,
   },
-  "in-development": {
-    label: "In Development",
+  researching: {
+    label: "Researching",
     variant: "secondary" as const,
   },
-  "ready-for-proposal": {
-    label: "Ready for Proposal",
+  researched: {
+    label: "Researched",
     variant: "default" as const,
   },
-  archived: {
-    label: "Archived",
-    variant: "outline" as const,
+  proposal_generated: {
+    label: "Proposal Created",
+    variant: "default" as const,
   },
 };
 
@@ -78,10 +80,34 @@ function getRelativeTime(dateString: string): string {
 }
 
 function calculateProgress(idea: Idea): number {
-  let progress = 20; // Base progress for creating an idea
-  if (idea.description && idea.description.length > 100) progress += 20;
-  if (idea.idea_research && idea.idea_research.length > 0) progress += 40;
-  if (idea.status === "ready-for-proposal") progress = 100;
+  // If a checklist exists, progress is driven by checklist completion
+  if (idea.checklist && idea.checklist.length > 0) {
+    const completed = idea.checklist.filter((c) => c.completed).length;
+    return Math.round((completed / idea.checklist.length) * 100);
+  }
+
+  // Fallback: heuristic-based progress for ideas without a checklist
+  let progress = 10;
+
+  if (idea.description) {
+    if (idea.description.length > 200) progress += 15;
+    else if (idea.description.length > 50) progress += 10;
+  }
+
+  if (idea.inspiration_id) progress += 10;
+
+  if (idea.status === "researching") progress = Math.max(progress, 40);
+  if (idea.status === "researched") progress = Math.max(progress, 65);
+  if (idea.status === "proposal_generated") progress = Math.max(progress, 90);
+
+  if (idea.idea_research && idea.idea_research.length > 0) {
+    progress += 15;
+    const hasGoodSummary = idea.idea_research.some(
+      (r) => r.summary && r.summary.length > 50
+    );
+    if (hasGoodSummary) progress += 10;
+  }
+
   return Math.min(progress, 100);
 }
 
@@ -265,10 +291,10 @@ function IdeaCard({ idea, onDelete }: IdeaCardProps) {
             {hasResearch ? "Research Done" : "Needs Research"}
           </Badge>
           <Badge
-            variant={idea.status === "ready-for-proposal" ? "default" : "outline"}
+            variant={idea.status === "proposal_generated" ? "default" : "outline"}
             className="text-xs"
           >
-            {idea.status === "ready-for-proposal" ? "Ready" : "In Progress"}
+            {idea.status === "proposal_generated" ? "Proposal Created" : "No Proposal Yet"}
           </Badge>
         </div>
 

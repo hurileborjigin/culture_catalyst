@@ -18,6 +18,7 @@ import {
   Lightbulb,
   FileText,
   Globe,
+  MessageCircle,
   Menu,
   X,
   LogOut,
@@ -38,6 +39,7 @@ const navigation = [
   { name: "Inspiration", href: "/dashboard/inspiration", icon: Sparkles },
   { name: "Develop Ideas", href: "/dashboard/develop", icon: Lightbulb },
   { name: "Proposals", href: "/dashboard/proposals", icon: FileText },
+  { name: "Connections", href: "/dashboard/connections", icon: MessageCircle },
   { name: "Discover", href: "/dashboard/discover", icon: Globe },
 ];
 

@@ -264,6 +264,54 @@ export interface ProposalRecommendation {
   publishedProposal?: PublishedProposal;
 }
 
+// Communication & Collaboration Types
+export interface ProposalComment {
+  id: string;
+  publishedProposalId: string;
+  userId: string;
+  content: string;
+  createdAt: Date;
+  commenterName?: string;
+  commenterAvatar?: string | null;
+  commenterOrganization?: string | null;
+}
+
+export interface CollaborationRequest {
+  id: string;
+  publishedProposalId: string;
+  requesterId: string;
+  authorId: string;
+  roleAppliedFor: string;
+  message: string | null;
+  status: "pending" | "accepted" | "declined";
+  createdAt: Date;
+  updatedAt: Date;
+  requesterName?: string;
+  requesterSkills?: string[];
+  requesterOrganization?: string | null;
+  proposalTitle?: string;
+}
+
+export interface CollaborationMessage {
+  id: string;
+  requestId: string;
+  senderId: string;
+  content: string;
+  createdAt: Date;
+  senderName?: string;
+}
+
+export interface ProposalCollaborator {
+  id: string;
+  publishedProposalId: string;
+  userId: string;
+  role: string;
+  skills: string[];
+  joinedAt: Date;
+  collaboratorName?: string;
+  collaboratorOrganization?: string | null;
+}
+
 // API Response Types for Backend Integration
 export interface ApiResponse<T> {
   success: boolean;

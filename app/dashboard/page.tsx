@@ -16,10 +16,16 @@ import {
   Sparkles,
   Lightbulb,
   FileText,
+  Globe,
   ArrowRight,
   Clock,
   TrendingUp,
   Loader2,
+  Users,
+  MessageCircle,
+  ChevronRight,
+  CheckCircle2,
+  Circle,
 } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
 
@@ -29,7 +35,8 @@ interface Idea {
   description: string;
   status: string;
   updated_at: string;
-  idea_research?: Array<{ id: string }>;
+  idea_research?: Array<{ id: string; summary?: string | null }>;
+  checklist?: Array<{ text: string; completed: boolean }>;
 }
 
 interface Proposal {
@@ -39,86 +46,62 @@ interface Proposal {
   updated_at: string;
 }
 
-interface Stats {
-  ideasCount: number;
-  proposalsCount: number;
-  inspirationsCount: number;
+interface Recommendation {
+  publishedProposalId: string;
+  relevanceScore: number;
+  relevanceReason: { reason: string } | string | null;
+  publishedProposal: {
+    id: string;
+    title: string;
+    category: string | null;
+    author_name: string;
+    author_organization: string | null;
+    vision_statement: string | null;
+  } | null;
 }
 
 interface ActivityItem {
   id: string;
-  type: "inspiration" | "idea" | "proposal";
+  type: "idea" | "proposal";
   title: string;
   time: string;
+  link: string;
 }
 
 export default function DashboardPage() {
   const { user } = useAuth();
   const [isLoading, setIsLoading] = useState(true);
-  const [stats, setStats] = useState<Stats>({ ideasCount: 0, proposalsCount: 0, inspirationsCount: 0 });
-  const [recentActivity, setRecentActivity] = useState<ActivityItem[]>([]);
-  const [currentProject, setCurrentProject] = useState<Idea | null>(null);
+  const [ideas, setIdeas] = useState<Idea[]>([]);
+  const [proposals, setProposals] = useState<Proposal[]>([]);
+  const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
+  const [collabCount, setCollabCount] = useState(0);
+  const [publishedCount, setPublishedCount] = useState(0);
 
   useEffect(() => {
-    const fetchDashboardData = async () => {
+    const fetchAll = async () => {
       setIsLoading(true);
       try {
-        // Fetch ideas
-        const ideasRes = await fetch("/api/ideas");
-        const ideasData = await ideasRes.json();
-        const ideas: Idea[] = ideasData.success ? ideasData.ideas : [];
+        const [ideasRes, proposalsRes, recsRes, collabRes, pubRes] =
+          await Promise.all([
+            fetch("/api/ideas").then((r) => r.json()).catch(() => ({ ideas: [] })),
+            fetch("/api/proposals").then((r) => r.json()).catch(() => ({ proposals: [] })),
+            fetch("/api/recommendations/proposals").then((r) => r.json()).catch(() => ({ recommendations: [] })),
+            fetch("/api/collaboration-requests?type=incoming").then((r) => r.json()).catch(() => ({ requests: [] })),
+            fetch("/api/published-proposals?pageSize=1").then((r) => r.json()).catch(() => ({ total: 0 })),
+          ]);
 
-        // Fetch proposals
-        const proposalsRes = await fetch("/api/proposals");
-        const proposalsData = await proposalsRes.json();
-        const proposals: Proposal[] = proposalsData.success ? proposalsData.proposals : [];
-
-        // Calculate stats
-        setStats({
-          ideasCount: ideas.filter((i) => i.status !== "completed").length,
-          proposalsCount: proposals.filter((p) => p.status === "draft").length,
-          inspirationsCount: 0, // TODO: Add saved inspirations API
-        });
-
-        // Build recent activity from ideas and proposals
-        const activity: ActivityItem[] = [];
-        
-        ideas.slice(0, 3).forEach((idea) => {
-          activity.push({
-            id: idea.id,
-            type: "idea",
-            title: idea.title,
-            time: formatRelativeTime(idea.updated_at),
-          });
-        });
-
-        proposals.slice(0, 3).forEach((proposal) => {
-          activity.push({
-            id: proposal.id,
-            type: "proposal",
-            title: proposal.title,
-            time: formatRelativeTime(proposal.updated_at),
-          });
-        });
-
-        // Sort by time and take top 5
-        setRecentActivity(activity.slice(0, 5));
-
-        // Set current project as most recent in-development idea
-        const inDevelopment = ideas.find((i) => i.status === "in-development");
-        if (inDevelopment) {
-          setCurrentProject(inDevelopment);
-        } else if (ideas.length > 0) {
-          setCurrentProject(ideas[0]);
-        }
+        setIdeas(ideasRes.success ? ideasRes.ideas : []);
+        setProposals(proposalsRes.success ? proposalsRes.proposals : []);
+        setRecommendations(recsRes.success ? recsRes.recommendations?.slice(0, 3) || [] : []);
+        setCollabCount(collabRes.success ? collabRes.requests?.filter((r: { status: string }) => r.status === "pending").length || 0 : 0);
+        setPublishedCount(pubRes.total || 0);
       } catch (error) {
         console.error("Error fetching dashboard data:", error);
       } finally {
         setIsLoading(false);
       }
     };
-
-    fetchDashboardData();
+    fetchAll();
   }, []);
 
   const formatRelativeTime = (dateString: string) => {
@@ -128,142 +111,167 @@ export default function DashboardPage() {
     const diffMins = Math.floor(diffMs / 60000);
     const diffHours = Math.floor(diffMs / 3600000);
     const diffDays = Math.floor(diffMs / 86400000);
-
-    if (diffMins < 60) return `${diffMins} minutes ago`;
-    if (diffHours < 24) return `${diffHours} hours ago`;
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
     if (diffDays === 1) return "Yesterday";
-    return `${diffDays} days ago`;
+    return `${diffDays}d ago`;
   };
 
   const calculateProgress = (idea: Idea) => {
-    // Base progress on status and research
-    let progress = 0;
-    if (idea.status === "draft") progress = 25;
-    else if (idea.status === "in-development") progress = 50;
-    else if (idea.status === "ready") progress = 75;
-    else if (idea.status === "completed") progress = 100;
-    
-    // Add points for having research
-    if (idea.idea_research && idea.idea_research.length > 0) {
-      progress = Math.min(progress + 25, 100);
+    if (idea.checklist && idea.checklist.length > 0) {
+      return Math.round(
+        (idea.checklist.filter((c) => c.completed).length / idea.checklist.length) * 100
+      );
     }
-    
-    return progress;
+    if (idea.status === "draft") return 10;
+    if (idea.status === "researching") return 40;
+    if (idea.status === "researched") return 65;
+    if (idea.status === "proposal_generated") return 90;
+    return 10;
   };
 
-  const quickStats = [
-    { label: "Ideas in Progress", value: stats.ideasCount, icon: Lightbulb },
-    { label: "Draft Proposals", value: stats.proposalsCount, icon: FileText },
-    { label: "Saved Inspirations", value: stats.inspirationsCount, icon: Sparkles },
+  const currentProject = ideas.length > 0 ? ideas[0] : null;
+  const draftProposals = proposals.filter((p) => p.status === "draft").length;
+  const submittedProposals = proposals.filter((p) => p.status === "submitted").length;
+
+  const recentActivity: ActivityItem[] = [
+    ...ideas.slice(0, 3).map((i) => ({
+      id: i.id,
+      type: "idea" as const,
+      title: i.title,
+      time: formatRelativeTime(i.updated_at),
+      link: `/dashboard/develop/${i.id}`,
+    })),
+    ...proposals.slice(0, 3).map((p) => ({
+      id: p.id,
+      type: "proposal" as const,
+      title: p.title,
+      time: formatRelativeTime(p.updated_at),
+      link: `/dashboard/proposals/${p.id}`,
+    })),
+  ].slice(0, 5);
+
+  const workflowSteps = [
+    {
+      icon: Sparkles,
+      title: "Inspire",
+      description: "Discover cultural events and trends tailored to your interests",
+      count: null,
+      href: "/dashboard/inspiration",
+      color: "text-violet-600",
+      bg: "bg-violet-100",
+    },
+    {
+      icon: Lightbulb,
+      title: "Develop",
+      description: "Research your idea and build a checklist of what you need to know",
+      count: ideas.length > 0 ? `${ideas.length} idea${ideas.length !== 1 ? "s" : ""}` : null,
+      href: "/dashboard/develop",
+      color: "text-amber-600",
+      bg: "bg-amber-100",
+    },
+    {
+      icon: FileText,
+      title: "Propose",
+      description: "Generate polished proposals with AI-powered research and structure",
+      count: proposals.length > 0 ? `${proposals.length} proposal${proposals.length !== 1 ? "s" : ""}` : null,
+      href: "/dashboard/proposals",
+      color: "text-blue-600",
+      bg: "bg-blue-100",
+    },
+    {
+      icon: Globe,
+      title: "Collaborate",
+      description: "Publish proposals, find collaborators, and join projects that match your skills",
+      count: publishedCount > 0 ? `${publishedCount} published` : null,
+      href: "/dashboard/discover",
+      color: "text-emerald-600",
+      bg: "bg-emerald-100",
+    },
   ];
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-      {/* Welcome Section */}
-      <div className="mb-8">
+      {/* Welcome + Platform Summary */}
+      <div className="mb-10">
         <h1 className="font-serif text-3xl font-bold">
           Welcome back{user?.name ? `, ${user.name.split(" ")[0]}` : ""}
         </h1>
-        <p className="mt-1 text-muted-foreground">
-          Continue building your cultural projects or discover new inspiration.
+        <p className="mt-2 max-w-2xl text-muted-foreground">
+          Transform cultural ideas into funded, collaborative projects.
+          Discover inspiration, develop your concept, create proposals, and find the right people to bring it to life.
         </p>
       </div>
 
+      {/* Workflow Pipeline */}
+      <div className="mb-10">
+        <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+          Your Creative Pipeline
+        </h2>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {workflowSteps.map((step, i) => (
+            <Link key={step.title} href={step.href} className="group">
+              <Card className="relative h-full transition-all hover:shadow-md hover:border-primary/30">
+                {i < workflowSteps.length - 1 && (
+                  <ChevronRight className="absolute -right-3 top-1/2 z-10 hidden h-6 w-6 -translate-y-1/2 text-muted-foreground/40 lg:block" />
+                )}
+                <CardHeader className="pb-2">
+                  <div className="flex items-center justify-between">
+                    <div className={`flex h-10 w-10 items-center justify-center rounded-lg ${step.bg}`}>
+                      <step.icon className={`h-5 w-5 ${step.color}`} />
+                    </div>
+                    {step.count && !isLoading && (
+                      <Badge variant="secondary" className="text-xs">
+                        {step.count}
+                      </Badge>
+                    )}
+                  </div>
+                  <CardTitle className="text-base font-semibold group-hover:text-primary transition-colors">
+                    {step.title}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    {step.description}
+                  </p>
+                </CardContent>
+              </Card>
+            </Link>
+          ))}
+        </div>
+      </div>
+
       {/* Quick Stats */}
-      <div className="mb-8 grid gap-4 sm:grid-cols-3">
-        {quickStats.map((stat) => (
+      <div className="mb-8 grid gap-3 grid-cols-2 lg:grid-cols-4">
+        {[
+          { label: "Ideas in Progress", value: ideas.length, icon: Lightbulb },
+          { label: "Draft Proposals", value: draftProposals, icon: FileText },
+          { label: "Published", value: submittedProposals, icon: Globe },
+          { label: "Pending Requests", value: collabCount, icon: MessageCircle },
+        ].map((stat) => (
           <Card key={stat.label}>
-            <CardContent className="flex items-center gap-4 p-6">
-              <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary/10">
-                <stat.icon className="h-6 w-6 text-primary" />
+            <CardContent className="flex items-center gap-3 p-4">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10">
+                <stat.icon className="h-4 w-4 text-primary" />
               </div>
               <div>
                 {isLoading ? (
-                  <Loader2 className="h-6 w-6 animate-spin" />
+                  <Loader2 className="h-5 w-5 animate-spin" />
                 ) : (
-                  <p className="text-2xl font-bold">{stat.value}</p>
+                  <p className="text-xl font-bold">{stat.value}</p>
                 )}
-                <p className="text-sm text-muted-foreground">{stat.label}</p>
+                <p className="text-xs text-muted-foreground">{stat.label}</p>
               </div>
             </CardContent>
           </Card>
         ))}
       </div>
 
-      {/* Main Actions */}
-      <div className="mb-8 grid gap-6 lg:grid-cols-3">
-        {/* Phase 1: Inspiration */}
-        <Card className="relative overflow-hidden">
-          <div className="absolute right-0 top-0 h-24 w-24 translate-x-8 -translate-y-8 rounded-full bg-primary/10" />
-          <CardHeader>
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
-              <Sparkles className="h-5 w-5 text-primary" />
-            </div>
-            <CardTitle className="font-serif">Get Inspired</CardTitle>
-            <CardDescription>
-              Discover cultural events and trends tailored to your interests
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Button asChild className="w-full">
-              <Link href="/dashboard/inspiration">
-                Explore Inspiration
-                <ArrowRight className="ml-2 h-4 w-4" />
-              </Link>
-            </Button>
-          </CardContent>
-        </Card>
-
-        {/* Phase 2: Develop */}
-        <Card className="relative overflow-hidden">
-          <div className="absolute right-0 top-0 h-24 w-24 translate-x-8 -translate-y-8 rounded-full bg-primary/10" />
-          <CardHeader>
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
-              <Lightbulb className="h-5 w-5 text-primary" />
-            </div>
-            <CardTitle className="font-serif">Develop Ideas</CardTitle>
-            <CardDescription>
-              Transform your concepts into structured, feasible plans
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Button asChild className="w-full">
-              <Link href="/dashboard/develop">
-                Start Developing
-                <ArrowRight className="ml-2 h-4 w-4" />
-              </Link>
-            </Button>
-          </CardContent>
-        </Card>
-
-        {/* Phase 3: Proposals */}
-        <Card className="relative overflow-hidden">
-          <div className="absolute right-0 top-0 h-24 w-24 translate-x-8 -translate-y-8 rounded-full bg-primary/10" />
-          <CardHeader>
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
-              <FileText className="h-5 w-5 text-primary" />
-            </div>
-            <CardTitle className="font-serif">Create Proposals</CardTitle>
-            <CardDescription>
-              Generate polished proposals ready for publishing
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Button asChild className="w-full">
-              <Link href="/dashboard/proposals">
-                View Proposals
-                <ArrowRight className="ml-2 h-4 w-4" />
-              </Link>
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Bottom Section */}
-      <div className="grid gap-6 lg:grid-cols-2">
-        {/* Current Project Progress */}
+      {/* Bottom Section: Current Project + Recommendations */}
+      <div className="grid gap-6 lg:grid-cols-2 mb-8">
+        {/* Current Project */}
         <Card>
-          <CardHeader>
+          <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2 text-lg">
               <TrendingUp className="h-5 w-5 text-primary" />
               Current Project
@@ -279,8 +287,8 @@ export default function DashboardPage() {
                 <div>
                   <div className="flex items-center justify-between">
                     <h3 className="font-medium">{currentProject.title}</h3>
-                    <Badge variant="secondary">
-                      {currentProject.status.replace("-", " ")}
+                    <Badge variant="secondary" className="text-xs">
+                      {currentProject.status.replace(/_/g, " ")}
                     </Badge>
                   </div>
                   <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">
@@ -294,11 +302,36 @@ export default function DashboardPage() {
                       {calculateProgress(currentProject)}%
                     </span>
                   </div>
-                  <Progress value={calculateProgress(currentProject)} className="h-2" />
+                  <Progress
+                    value={calculateProgress(currentProject)}
+                    className="h-2"
+                  />
                 </div>
+                {currentProject.checklist && currentProject.checklist.length > 0 && (
+                  <div className="space-y-1">
+                    {currentProject.checklist.slice(0, 4).map((item, i) => (
+                      <div key={i} className="flex items-center gap-2 text-sm">
+                        {item.completed ? (
+                          <CheckCircle2 className="h-3.5 w-3.5 text-green-600 shrink-0" />
+                        ) : (
+                          <Circle className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                        )}
+                        <span className={`truncate ${item.completed ? "line-through text-muted-foreground" : ""}`}>
+                          {item.text}
+                        </span>
+                      </div>
+                    ))}
+                    {currentProject.checklist.length > 4 && (
+                      <p className="text-xs text-muted-foreground pl-6">
+                        +{currentProject.checklist.length - 4} more items
+                      </p>
+                    )}
+                  </div>
+                )}
                 <Button variant="outline" asChild className="w-full">
                   <Link href={`/dashboard/develop/${currentProject.id}`}>
                     Continue Working
+                    <ArrowRight className="ml-2 h-4 w-4" />
                   </Link>
                 </Button>
               </>
@@ -314,55 +347,116 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
 
-        {/* Recent Activity */}
+        {/* Recommended for You */}
         <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-lg">
-              <Clock className="h-5 w-5 text-primary" />
-              Recent Activity
-            </CardTitle>
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <Sparkles className="h-5 w-5 text-primary" />
+                Recommended for You
+              </CardTitle>
+              <Button variant="ghost" size="sm" asChild>
+                <Link href="/dashboard/discover">
+                  View All
+                  <ArrowRight className="ml-1 h-3 w-3" />
+                </Link>
+              </Button>
+            </div>
+            <CardDescription>
+              Published proposals that match your interests and skills
+            </CardDescription>
           </CardHeader>
           <CardContent>
             {isLoading ? (
               <div className="flex items-center justify-center py-8">
                 <Loader2 className="h-6 w-6 animate-spin text-primary" />
               </div>
-            ) : recentActivity.length > 0 ? (
-              <div className="space-y-4">
-                {recentActivity.map((activity) => (
-                  <div
-                    key={`${activity.type}-${activity.id}`}
-                    className="flex items-start gap-3 border-b pb-3 last:border-0 last:pb-0"
-                  >
-                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-muted">
-                      {activity.type === "inspiration" && (
-                        <Sparkles className="h-4 w-4 text-muted-foreground" />
-                      )}
-                      {activity.type === "idea" && (
-                        <Lightbulb className="h-4 w-4 text-muted-foreground" />
-                      )}
-                      {activity.type === "proposal" && (
-                        <FileText className="h-4 w-4 text-muted-foreground" />
-                      )}
-                    </div>
-                    <div className="flex-1">
-                      <p className="text-sm font-medium">{activity.title}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {activity.time}
-                      </p>
-                    </div>
-                  </div>
-                ))}
+            ) : recommendations.length > 0 ? (
+              <div className="space-y-3">
+                {recommendations.map((rec) =>
+                  rec.publishedProposal ? (
+                    <Link
+                      key={rec.publishedProposalId || rec.publishedProposal.id}
+                      href={`/dashboard/discover/${rec.publishedProposal.id}`}
+                      className="block"
+                    >
+                      <div className="flex items-start gap-3 rounded-lg border p-3 transition-colors hover:bg-muted/50">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <p className="text-sm font-medium truncate">
+                              {rec.publishedProposal.title}
+                            </p>
+                            <Badge variant="outline" className="shrink-0 text-xs">
+                              {rec.relevanceScore}%
+                            </Badge>
+                          </div>
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            {rec.publishedProposal.author_name}
+                            {rec.publishedProposal.author_organization
+                              ? ` · ${rec.publishedProposal.author_organization}`
+                              : ""}
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-1 line-clamp-1">
+                            {typeof rec.relevanceReason === "object" && rec.relevanceReason
+                              ? rec.relevanceReason.reason
+                              : rec.relevanceReason || ""}
+                          </p>
+                        </div>
+                        {rec.publishedProposal.category && (
+                          <Badge variant="secondary" className="shrink-0 text-xs">
+                            {rec.publishedProposal.category}
+                          </Badge>
+                        )}
+                      </div>
+                    </Link>
+                  ) : null
+                )}
               </div>
             ) : (
               <div className="py-8 text-center">
-                <Clock className="mx-auto h-12 w-12 text-muted-foreground" />
-                <p className="mt-4 text-muted-foreground">No recent activity</p>
+                <Globe className="mx-auto h-12 w-12 text-muted-foreground" />
+                <p className="mt-4 text-sm text-muted-foreground">
+                  No recommendations yet
+                </p>
+                <Button variant="outline" asChild className="mt-4">
+                  <Link href="/dashboard/discover">Browse Proposals</Link>
+                </Button>
               </div>
             )}
           </CardContent>
         </Card>
       </div>
+
+      {/* Recent Activity */}
+      {!isLoading && recentActivity.length > 0 && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Clock className="h-4 w-4 text-primary" />
+              Recent Activity
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-wrap gap-x-6 gap-y-2">
+              {recentActivity.map((activity) => (
+                <Link
+                  key={`${activity.type}-${activity.id}`}
+                  href={activity.link}
+                  className="flex items-center gap-2 text-sm hover:text-primary transition-colors"
+                >
+                  {activity.type === "idea" ? (
+                    <Lightbulb className="h-3.5 w-3.5 text-muted-foreground" />
+                  ) : (
+                    <FileText className="h-3.5 w-3.5 text-muted-foreground" />
+                  )}
+                  <span className="truncate max-w-[200px]">{activity.title}</span>
+                  <span className="text-xs text-muted-foreground">{activity.time}</span>
+                </Link>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

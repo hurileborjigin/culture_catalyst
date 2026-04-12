@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { verifyToken } from "@/lib/auth";
 import { cookies } from "next/headers";
 import { azureOpenAI } from "@/lib/services/azure-openai";
+import { generateIdeaChecklist } from "@/lib/services/azure-openai";
 import { tavilySearch } from "@/lib/services/tavily-search";
 import type { ResearchSection, UserProfile } from "@/types";
 
@@ -141,6 +142,20 @@ export async function POST(
     const synthesis = await azureOpenAI.synthesizeResearch(idea, researchResults);
     console.log("[Idea Analysis] Research synthesis complete");
 
+    // Step 4: Generate development checklist
+    console.log("[Idea Analysis] Generating development checklist...");
+    let checklist: Array<{ text: string; completed: boolean }> = [];
+    try {
+      checklist = await generateIdeaChecklist({
+        title: idea.title,
+        description: idea.description,
+        category: idea.category,
+      });
+      console.log("[Idea Analysis] Generated", checklist.length, "checklist items");
+    } catch (err) {
+      console.error("[Idea Analysis] Checklist generation failed (non-fatal):", err);
+    }
+
     // First, ensure the idea exists in the database
     const { data: existingIdea } = await supabase
       .from("ideas")
@@ -160,6 +175,7 @@ export async function POST(
           title: idea.title,
           description: idea.description,
           status: "researched",
+          checklist,
         })
         .select()
         .single();
@@ -174,7 +190,7 @@ export async function POST(
       // Update existing idea status
       await supabase
         .from("ideas")
-        .update({ status: "researched", updated_at: new Date().toISOString() })
+        .update({ status: "researched", checklist, updated_at: new Date().toISOString() })
         .eq("id", ideaId);
     }
 
@@ -201,6 +217,7 @@ export async function POST(
         sections: synthesis.sections,
         summary: synthesis.summary,
       },
+      checklist,
       cached: false,
       generatedAt: savedResearch?.created_at || new Date().toISOString(),
     });

@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
+import { useAuth } from "@/contexts/auth-context";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -11,6 +12,15 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   ArrowLeft,
   MapPin,
@@ -23,10 +33,14 @@ import {
   AlertTriangle,
   CheckCircle,
   Loader2,
+  MessageSquare,
+  Send,
+  UserPlus,
 } from "lucide-react";
 
 interface PublishedProposal {
   id: string;
+  user_id: string;
   title: string;
   vision_statement: string | null;
   goals: string[];
@@ -59,19 +73,52 @@ interface PublishedProposal {
   published_at: string;
 }
 
+interface Comment {
+  id: string;
+  content: string;
+  createdAt: string;
+  commenterName: string;
+  commenterOrganization: string | null;
+}
+
+interface Collaborator {
+  id: string;
+  userId: string;
+  role: string;
+  skills: string[];
+  joinedAt: string;
+  collaboratorName: string;
+  collaboratorOrganization: string | null;
+}
+
+interface MyRequest {
+  id: string;
+  role_applied_for: string;
+  status: string;
+}
+
 export default function PublishedProposalDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const { user } = useAuth();
   const [proposal, setProposal] = useState<PublishedProposal | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [comments, setComments] = useState<Comment[]>([]);
+  const [collaborators, setCollaborators] = useState<Collaborator[]>([]);
+  const [myRequests, setMyRequests] = useState<MyRequest[]>([]);
+  const [newComment, setNewComment] = useState("");
+  const [isSendingComment, setIsSendingComment] = useState(false);
+  const [applyDialog, setApplyDialog] = useState<{ open: boolean; role: string; skills: string[] }>({
+    open: false, role: "", skills: [],
+  });
+  const [applyMessage, setApplyMessage] = useState("");
+  const [isApplying, setIsApplying] = useState(false);
 
   useEffect(() => {
     const fetchProposal = async () => {
       try {
         const res = await fetch(`/api/published-proposals/${id}`);
         const data = await res.json();
-        if (data.success) {
-          setProposal(data.proposal);
-        }
+        if (data.success) setProposal(data.proposal);
       } catch (error) {
         console.error("Error fetching published proposal:", error);
       } finally {
@@ -80,6 +127,77 @@ export default function PublishedProposalDetailPage() {
     };
     fetchProposal();
   }, [id]);
+
+  useEffect(() => {
+    if (!id) return;
+    const fetchExtras = async () => {
+      const [commentsRes, collabsRes, reqsRes] = await Promise.all([
+        fetch(`/api/published-proposals/${id}/comments`).then((r) => r.json()).catch(() => null),
+        fetch(`/api/published-proposals/${id}/collaborators`).then((r) => r.json()).catch(() => null),
+        fetch(`/api/published-proposals/${id}/collaborate`).then((r) => r.json()).catch(() => null),
+      ]);
+      if (commentsRes?.success) setComments(commentsRes.comments);
+      if (collabsRes?.success) setCollaborators(collabsRes.collaborators);
+      if (reqsRes?.success) setMyRequests(reqsRes.requests);
+    };
+    fetchExtras();
+  }, [id]);
+
+  const handlePostComment = async () => {
+    if (!newComment.trim()) return;
+    setIsSendingComment(true);
+    try {
+      const res = await fetch(`/api/published-proposals/${id}/comments`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: newComment }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setComments((prev) => [...prev, data.comment]);
+        setNewComment("");
+      }
+    } catch (error) {
+      console.error("Error posting comment:", error);
+    } finally {
+      setIsSendingComment(false);
+    }
+  };
+
+  const handleApply = async () => {
+    if (!applyDialog.role) return;
+    setIsApplying(true);
+    try {
+      const res = await fetch(`/api/published-proposals/${id}/collaborate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ roleAppliedFor: applyDialog.role, message: applyMessage }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setMyRequests((prev) => [...prev, {
+          id: data.request.id,
+          role_applied_for: applyDialog.role,
+          status: "pending",
+        }]);
+        setApplyDialog({ open: false, role: "", skills: [] });
+        setApplyMessage("");
+      }
+    } catch (error) {
+      console.error("Error applying:", error);
+    } finally {
+      setIsApplying(false);
+    }
+  };
+
+  const getRequestForRole = (role: string) =>
+    myRequests.find((r) => r.role_applied_for === role);
+
+  const getCollaboratorsForRole = (role: string) =>
+    collaborators.filter((c) => c.role === role);
+
+  const isAuthor = user?.id === proposal?.user_id;
+  const isCollaborator = collaborators.some((c) => c.userId === user?.id);
 
   if (isLoading) {
     return (
@@ -259,45 +377,92 @@ export default function PublishedProposalDetailPage() {
           </section>
         )}
 
-        {/* Collaborators Needed */}
+        {/* Team & Open Roles */}
         {proposal.collaborators_needed && proposal.collaborators_needed.length > 0 && (
           <section>
             <h2 className="mb-3 flex items-center gap-2 text-xl font-semibold">
               <Users className="h-5 w-5 text-primary" />
-              Collaborators Needed
+              Team & Open Roles
             </h2>
+
+            {collaborators.length > 0 && (
+              <div className="mb-4">
+                <p className="text-sm font-medium text-muted-foreground mb-2">Current Team</p>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {collaborators.map((c) => (
+                    <Card key={c.id} className="border-green-200 bg-green-50/50">
+                      <CardContent className="py-3">
+                        <div className="flex items-center gap-2 mb-1">
+                          <CheckCircle className="h-4 w-4 text-green-600" />
+                          <span className="font-medium text-sm">{c.collaboratorName}</span>
+                          <Badge variant="secondary" className="text-xs ml-auto">{c.role}</Badge>
+                        </div>
+                        {c.collaboratorOrganization && (
+                          <p className="text-xs text-muted-foreground ml-6">{c.collaboratorOrganization}</p>
+                        )}
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <p className="text-sm font-medium text-muted-foreground mb-2">
+              {collaborators.length > 0 ? "Open Positions" : "Collaborators Needed"}
+            </p>
             <div className="grid gap-4 sm:grid-cols-2">
-              {proposal.collaborators_needed.map((collab, i) => (
-                <Card key={i}>
-                  <CardContent className="py-4">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="font-medium">{collab.role}</span>
-                      {collab.priority && (
-                        <Badge
-                          variant={
-                            collab.priority === "required"
-                              ? "default"
-                              : collab.priority === "preferred"
-                                ? "secondary"
-                                : "outline"
-                          }
-                        >
-                          {collab.priority}
-                        </Badge>
-                      )}
-                    </div>
-                    {collab.skills && collab.skills.length > 0 && (
-                      <div className="flex flex-wrap gap-1">
-                        {collab.skills.map((skill) => (
-                          <Badge key={skill} variant="outline" className="text-xs">
-                            {skill}
-                          </Badge>
-                        ))}
+              {proposal.collaborators_needed.map((collab, i) => {
+                const existing = getRequestForRole(collab.role);
+                const filled = getCollaboratorsForRole(collab.role);
+                const remaining = (collab.count || 1) - filled.length;
+                if (remaining <= 0) return null;
+
+                return (
+                  <Card key={i}>
+                    <CardContent className="py-4">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="font-medium">{collab.role}</span>
+                        <div className="flex items-center gap-2">
+                          {remaining > 1 && (
+                            <Badge variant="outline" className="text-xs">{remaining} needed</Badge>
+                          )}
+                          {collab.priority && (
+                            <Badge variant={collab.priority === "required" ? "default" : collab.priority === "preferred" ? "secondary" : "outline"}>
+                              {collab.priority}
+                            </Badge>
+                          )}
+                        </div>
                       </div>
-                    )}
-                  </CardContent>
-                </Card>
-              ))}
+                      {collab.skills && collab.skills.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mb-3">
+                          {collab.skills.map((skill) => (
+                            <Badge key={skill} variant="outline" className="text-xs">{skill}</Badge>
+                          ))}
+                        </div>
+                      )}
+                      {existing ? (
+                        <Badge variant={existing.status === "accepted" ? "default" : existing.status === "pending" ? "secondary" : "outline"}>
+                          {existing.status === "pending" ? "Application Pending" : existing.status === "accepted" ? "Accepted" : "Declined"}
+                        </Badge>
+                      ) : isAuthor ? (
+                        <Badge variant="outline" className="text-xs">Your proposal</Badge>
+                      ) : isCollaborator ? (
+                        <Badge variant="default" className="text-xs">You&apos;re on this team</Badge>
+                      ) : (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="w-full"
+                          onClick={() => setApplyDialog({ open: true, role: collab.role, skills: collab.skills || [] })}
+                        >
+                          <UserPlus className="mr-2 h-3.5 w-3.5" />
+                          Apply for this Role
+                        </Button>
+                      )}
+                    </CardContent>
+                  </Card>
+                );
+              })}
             </div>
           </section>
         )}
@@ -335,7 +500,105 @@ export default function PublishedProposalDetailPage() {
             </ol>
           </section>
         )}
+
+        {/* Comments */}
+        <section>
+          <h2 className="mb-3 flex items-center gap-2 text-xl font-semibold">
+            <MessageSquare className="h-5 w-5 text-primary" />
+            Discussion ({comments.length})
+          </h2>
+
+          <div className="space-y-3 mb-4">
+            {comments.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-4 text-center">
+                No comments yet. Start the conversation!
+              </p>
+            ) : (
+              comments.map((comment) => (
+                <Card key={comment.id}>
+                  <CardContent className="py-3">
+                    <div className="flex items-center gap-2 mb-1">
+                      <div className="flex h-7 w-7 items-center justify-center rounded-full bg-muted">
+                        <User className="h-3.5 w-3.5" />
+                      </div>
+                      <span className="text-sm font-medium">{comment.commenterName}</span>
+                      {comment.commenterOrganization && (
+                        <span className="text-xs text-muted-foreground">· {comment.commenterOrganization}</span>
+                      )}
+                      <span className="text-xs text-muted-foreground ml-auto">
+                        {new Date(comment.createdAt).toLocaleDateString()}
+                      </span>
+                    </div>
+                    <p className="text-sm ml-9">{comment.content}</p>
+                  </CardContent>
+                </Card>
+              ))
+            )}
+          </div>
+
+          <div className="flex gap-2">
+            <Textarea
+              placeholder="Add a comment..."
+              value={newComment}
+              onChange={(e) => setNewComment(e.target.value)}
+              className="min-h-[80px]"
+            />
+            <Button
+              size="icon"
+              className="shrink-0 self-end"
+              onClick={handlePostComment}
+              disabled={isSendingComment || !newComment.trim()}
+            >
+              {isSendingComment ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Send className="h-4 w-4" />
+              )}
+            </Button>
+          </div>
+        </section>
       </div>
+
+      {/* Apply Dialog */}
+      <Dialog open={applyDialog.open} onOpenChange={(open) => setApplyDialog((prev) => ({ ...prev, open }))}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Apply for: {applyDialog.role}</DialogTitle>
+            <DialogDescription>
+              Send a message to the proposal author explaining why you&apos;re a good fit for this role.
+            </DialogDescription>
+          </DialogHeader>
+          {applyDialog.skills.length > 0 && (
+            <div>
+              <p className="text-sm font-medium mb-1">Required skills</p>
+              <div className="flex flex-wrap gap-1">
+                {applyDialog.skills.map((skill) => (
+                  <Badge key={skill} variant="outline" className="text-xs">{skill}</Badge>
+                ))}
+              </div>
+            </div>
+          )}
+          <Textarea
+            placeholder="Introduce yourself and explain your interest in this role..."
+            value={applyMessage}
+            onChange={(e) => setApplyMessage(e.target.value)}
+            className="min-h-[120px]"
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setApplyDialog({ open: false, role: "", skills: [] })}>
+              Cancel
+            </Button>
+            <Button onClick={handleApply} disabled={isApplying}>
+              {isApplying ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <UserPlus className="mr-2 h-4 w-4" />
+              )}
+              Submit Application
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

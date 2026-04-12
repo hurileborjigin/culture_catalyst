@@ -15,6 +15,10 @@ import type {
   Proposal,
   PublishedProposal,
   ProposalRecommendation,
+  ProposalComment,
+  CollaborationRequest,
+  CollaborationMessage,
+  ProposalCollaborator,
   WorkflowSession,
 } from "@/types";
 
@@ -313,6 +317,86 @@ export const publishedProposalsApi = {
 };
 
 // ============================================
+// Comments API
+// ============================================
+
+export const commentsApi = {
+  getForProposal: (proposalId: string) =>
+    apiRequest<{ comments: ProposalComment[] }>(
+      `/published-proposals/${proposalId}/comments`
+    ),
+
+  create: (proposalId: string, content: string) =>
+    apiRequest<{ comment: ProposalComment }>(
+      `/published-proposals/${proposalId}/comments`,
+      { method: "POST", body: JSON.stringify({ content }) }
+    ),
+};
+
+// ============================================
+// Collaboration API
+// ============================================
+
+export const collaborationApi = {
+  // Check existing requests for a proposal
+  getMyRequests: (proposalId: string) =>
+    apiRequest<{ requests: Array<{ id: string; role_applied_for: string; status: string }> }>(
+      `/published-proposals/${proposalId}/collaborate`
+    ),
+
+  // Apply for a role
+  apply: (proposalId: string, roleAppliedFor: string, message?: string) =>
+    apiRequest<{ request: CollaborationRequest }>(
+      `/published-proposals/${proposalId}/collaborate`,
+      { method: "POST", body: JSON.stringify({ roleAppliedFor, message }) }
+    ),
+
+  // Get collaborators for a proposal
+  getCollaborators: (proposalId: string) =>
+    apiRequest<{ collaborators: ProposalCollaborator[] }>(
+      `/published-proposals/${proposalId}/collaborators`
+    ),
+
+  // List requests (incoming or outgoing)
+  listRequests: (type: "incoming" | "outgoing") =>
+    apiRequest<{ requests: CollaborationRequest[] }>(
+      `/collaboration-requests?type=${type}`
+    ),
+
+  // Get single request with messages
+  getRequest: (requestId: string) =>
+    apiRequest<{ request: CollaborationRequest; messages: CollaborationMessage[] }>(
+      `/collaboration-requests/${requestId}`
+    ),
+
+  // Accept or decline
+  updateStatus: (requestId: string, status: "accepted" | "declined") =>
+    apiRequest<{ success: boolean }>(
+      `/collaboration-requests/${requestId}`,
+      { method: "PATCH", body: JSON.stringify({ status }) }
+    ),
+
+  // Withdraw a request
+  withdraw: (requestId: string) =>
+    apiRequest<{ success: boolean }>(
+      `/collaboration-requests/${requestId}`,
+      { method: "DELETE" }
+    ),
+
+  // Messages in a thread
+  getMessages: (requestId: string) =>
+    apiRequest<{ messages: CollaborationMessage[] }>(
+      `/collaboration-requests/${requestId}/messages`
+    ),
+
+  sendMessage: (requestId: string, content: string) =>
+    apiRequest<{ message: CollaborationMessage }>(
+      `/collaboration-requests/${requestId}/messages`,
+      { method: "POST", body: JSON.stringify({ content }) }
+    ),
+};
+
+// ============================================
 // AI Agents API
 // ============================================
 
@@ -411,6 +495,8 @@ export const api = {
   ideas: ideasApi,
   proposals: proposalsApi,
   publishedProposals: publishedProposalsApi,
+  comments: commentsApi,
+  collaboration: collaborationApi,
   agents: agentsApi,
 };
 

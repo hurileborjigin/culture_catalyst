@@ -579,6 +579,44 @@ ${batch.map((p) => {
   return allResults.sort((a, b) => b.score - a.score).slice(0, 20);
 }
 
+/**
+ * Generate an actionable checklist for developing an idea
+ */
+export async function generateIdeaChecklist(idea: {
+  title: string;
+  description: string;
+  category: string;
+}): Promise<Array<{ text: string; completed: boolean }>> {
+  const messages: ChatMessage[] = [
+    {
+      role: "system",
+      content: `Generate 8-12 checklist items that help a user prepare to write a strong project proposal for a cultural project idea. These should NOT be execution tasks (like "book venue" or "hire team") — those belong in the proposal itself.
+
+Instead, focus on:
+- Concepts that need to be clearly defined (target audience, project scope, success criteria)
+- Things that need to be understood or researched before writing (regulations, similar projects, community needs)
+- Key decisions that should be made (format, scale, partnerships approach)
+- Knowledge gaps to fill (budget ranges, timeline feasibility, cultural sensitivities)
+- Connections or insights to gather (talk to community leaders, understand local context)
+
+Each item should start with an action verb like "Define", "Research", "Clarify", "Understand", "Decide", "Identify", "Explore", or "Assess".
+
+Output JSON array: [{"text":"Checklist item description","completed":false}]`,
+    },
+    {
+      role: "user",
+      content: `Title: ${idea.title}\nDescription: ${idea.description}\nCategory: ${idea.category}`,
+    },
+  ];
+
+  const result = await generateStructuredOutput<Array<{ text: string; completed: boolean }>>(
+    messages,
+    { maxTokens: 1500 }
+  );
+
+  return result.map((item) => ({ text: item.text, completed: false }));
+}
+
 export const azureOpenAI = {
   generateCompletion,
   generateStructuredOutput,
@@ -589,6 +627,7 @@ export const azureOpenAI = {
   generateProposal,
   generateProposalTags,
   rankProposalsForUser,
+  generateIdeaChecklist,
 };
 
 export default azureOpenAI;

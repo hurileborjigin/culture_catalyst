@@ -26,6 +26,7 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url);
     const category = searchParams.get("category");
+    const proposalId = searchParams.get("proposal_id");
     const page = parseInt(searchParams.get("page") || "1");
     const pageSize = parseInt(searchParams.get("pageSize") || "12");
     const offset = (page - 1) * pageSize;
@@ -38,6 +39,10 @@ export async function GET(request: NextRequest) {
 
     if (category) {
       query = query.eq("category", category);
+    }
+
+    if (proposalId) {
+      query = query.eq("proposal_id", proposalId);
     }
 
     const { data: proposals, error, count } = await query;

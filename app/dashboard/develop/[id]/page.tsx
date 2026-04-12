@@ -26,6 +26,8 @@ import {
   FileText,
   Search,
   BookOpen,
+  Circle,
+  ListChecks,
 } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
 import type { ResearchSection, UserProfile } from "@/types";
@@ -36,6 +38,7 @@ interface Idea {
   description: string;
   category: string;
   status: string;
+  checklist?: Array<{ text: string; completed: boolean }>;
 }
 
 export default function IdeaDetailPage({
@@ -56,6 +59,7 @@ export default function IdeaDetailPage({
   const [error, setError] = useState<string | null>(null);
   const [researchProgress, setResearchProgress] = useState(0);
   const [researchStep, setResearchStep] = useState("");
+  const [checklist, setChecklist] = useState<Array<{ text: string; completed: boolean }>>([]);
 
   // Get user profile for API calls
   const getUserProfile = (): UserProfile => {
@@ -85,6 +89,9 @@ export default function IdeaDetailPage({
         const data = await response.json();
         if (data.success && data.idea) {
           setIdea(data.idea);
+          if (data.idea.checklist && data.idea.checklist.length > 0) {
+            setChecklist(data.idea.checklist);
+          }
         } else {
           setError("Failed to load idea");
         }
@@ -168,6 +175,9 @@ export default function IdeaDetailPage({
       }
 
       setResearch(data.research);
+      if (data.checklist) {
+        setChecklist(data.checklist);
+      }
     } catch (err) {
       console.error("Research error:", err);
       setError(err instanceof Error ? err.message : "Failed to generate research");
@@ -179,6 +189,27 @@ export default function IdeaDetailPage({
   };
 
   const completedSections = research?.sections?.length || 0;
+
+  const handleToggleItem = async (index: number, completed: boolean) => {
+    const updated = checklist.map((item, i) =>
+      i === index ? { ...item, completed } : item
+    );
+    setChecklist(updated);
+    try {
+      await fetch(`/api/ideas/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ checklist: updated }),
+      });
+    } catch (err) {
+      console.error("Failed to toggle item:", err);
+      setChecklist(checklist);
+    }
+  };
+
+  const checklistProgress = checklist.length > 0
+    ? Math.round((checklist.filter((c) => c.completed).length / checklist.length) * 100)
+    : 0;
 
   // Loading state
   if (isLoadingIdea) {
@@ -273,6 +304,42 @@ export default function IdeaDetailPage({
             >
               Dismiss
             </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Development Checklist */}
+      {checklist.length > 0 && (
+        <Card className="mb-6">
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <ListChecks className="h-5 w-5 text-primary" />
+                Development Checklist
+              </CardTitle>
+              <Badge variant="outline">{checklistProgress}% complete</Badge>
+            </div>
+            <Progress value={checklistProgress} className="h-2 mt-2" />
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-1">
+              {checklist.map((item, index) => (
+                <button
+                  key={index}
+                  onClick={() => handleToggleItem(index, !item.completed)}
+                  className="flex w-full items-start gap-3 rounded-md p-2 text-left hover:bg-muted/50 transition-colors"
+                >
+                  {item.completed ? (
+                    <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-green-600" />
+                  ) : (
+                    <Circle className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                  )}
+                  <span className={`text-sm ${item.completed ? "line-through text-muted-foreground" : ""}`}>
+                    {item.text}
+                  </span>
+                </button>
+              ))}
+            </div>
           </CardContent>
         </Card>
       )}
