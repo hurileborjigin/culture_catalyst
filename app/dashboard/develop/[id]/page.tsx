@@ -65,11 +65,11 @@ export default function IdeaDetailPage({
   const getUserProfile = (): UserProfile => {
     if (user) {
       return {
-        name: user.name,
+        name: user.name || "User",
         interests: user.interests || [],
-        professionalBackground: user.professionalBackground,
-        organization: user.organization,
-        location: user.location,
+        professionalBackground: user.professional_background || undefined,
+        organization: user.organization || undefined,
+        location: user.location || undefined,
       };
     }
     return {
@@ -123,6 +123,7 @@ export default function IdeaDetailPage({
 
   // Perform research
   const handleResearch = async (forceRefresh = false) => {
+    if (!idea) return;
     setIsResearching(true);
     setError(null);
     setResearchProgress(0);

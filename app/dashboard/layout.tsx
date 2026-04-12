@@ -33,7 +33,7 @@ function DashboardContent({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex min-h-screen flex-col">
-      <Header user={{ name: user.name, email: user.email }} />
+      <Header user={{ name: user.name || "User", email: user.email || "" }} />
       <main className="flex-1">{children}</main>
     </div>
   );
